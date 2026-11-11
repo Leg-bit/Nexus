@@ -132,12 +132,13 @@ fun FullPlayer(c: AppContainer, onClose: () -> Unit) {
                 } else {
                     BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
                         val s = minOf(maxWidth, maxHeight)
+                        // read the constraints here: they are not reachable from inside Row's lambda
+                        val halfSide = minOf((maxWidth - 14.dp) / 2, maxHeight)
                         when (mode) {
                             "vinyl" -> VinylDisc(item, st.isPlaying, accent, if (dur > 0) pos.toFloat() / dur else 0f, s)
                             "lyrics" -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                val side = minOf((maxWidth - 14.dp) / 2, maxHeight)
                                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                                    CoverArt(item, st.isPlaying, accent, side / 0.92f)
+                                    CoverArt(item, st.isPlaying, accent, halfSide / 0.92f)
                                 }
                                 LyricsView(item, pos, c, accent, Modifier.weight(1f).fillMaxHeight())
                             }
