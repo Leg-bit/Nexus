@@ -65,6 +65,7 @@ import com.nexus.media.NexusApplication
 import com.nexus.media.core.theme.NexusTheme
 import com.nexus.media.data.local.entities.PlaybackHistoryEntity
 import com.nexus.media.di.AppContainer
+import com.nexus.media.player.audio.EqualizerManager
 import com.nexus.media.ui.fmtTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -79,6 +80,7 @@ class VideoPlayerActivity : ComponentActivity() {
     private var userRotated = false
     private var mediaId = ""
     private var inPip by mutableStateOf(false)
+    private var videoEq: EqualizerManager? = null
 
     private val subPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) loadSubtitle(uri)
@@ -98,6 +100,14 @@ class VideoPlayerActivity : ComponentActivity() {
                 AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),
                 true
             ).build()
+        player.volume = container.prefs.playerVolume
+        val veq = EqualizerManager(container.prefs)
+        videoEq = veq
+        veq.onHeadroom = { f -> player.volume = (container.prefs.playerVolume * f).coerceIn(0f, 1f) }
+        player.addListener(object : Player.Listener {
+            override fun onAudioSessionIdChanged(audioSessionId: Int) { veq.attach(audioSessionId) }
+        })
+        veq.attach(player.audioSessionId)
         player.setMediaItem(MediaItem.fromUri(uri))
         player.prepare()
         // Orientation follows the video: portrait clips open portrait, landscape clips open landscape.
@@ -231,6 +241,7 @@ class VideoPlayerActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        videoEq?.detach()
         if (::player.isInitialized) player.release()
     }
 }

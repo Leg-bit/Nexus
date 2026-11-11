@@ -58,6 +58,14 @@ class UserPreferences(context: Context) {
         get() = sp.getBoolean("online_lyrics", true)
         set(v) = sp.edit().putBoolean("online_lyrics", v).apply()
 
+    var eqEnabled: Boolean
+        get() = sp.getBoolean("eq_enabled", false)
+        set(v) = sp.edit().putBoolean("eq_enabled", v).apply()
+
+    var playerVolume: Float
+        get() = sp.getFloat("player_volume", 0.5f)
+        set(v) = sp.edit().putFloat("player_volume", v).apply()
+
     var playerMode: String
         get() = sp.getString("mode", "artwork")!!
         set(v) = sp.edit().putString("mode", v).apply()

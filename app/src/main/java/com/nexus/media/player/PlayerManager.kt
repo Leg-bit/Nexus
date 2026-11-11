@@ -58,9 +58,12 @@ class PlayerManager(
     private val _sleepEndsAt = MutableStateFlow<Long?>(null)
     val sleepEndsAt: StateFlow<Long?> = _sleepEndsAt.asStateFlow()
     private var sleepJob: Job? = null
+    private var headroom = 1f
     private var controllerFuture: Any? = null
 
     init {
+        eq.onHeadroom = { f -> headroom = f; if (f <= 0.001f) applyVolume() else rampVolume() }
+        applyVolume()
         player.shuffleModeEnabled = prefs.shuffle
         player.repeatMode = prefs.repeatMode
         player.addListener(object : Player.Listener {
@@ -168,6 +171,25 @@ class PlayerManager(
     fun next() { player.seekToNextMediaItem() }
     fun previous() { if (player.currentPosition > 3000) player.seekTo(0) else player.seekToPreviousMediaItem() }
     fun seekTo(ms: Long) { player.seekTo(ms) }
+
+    private var rampJob: Job? = null
+    private fun target() = (prefs.playerVolume * headroom).coerceIn(0f, 1f)
+
+    /** Instant volume (init, user volume slider, mute). */
+    private fun applyVolume() { rampJob?.cancel(); player.volume = target() }
+
+    /** Smooth volume change (~0.3 s) so equalizer changes never cause a sudden jump. */
+    private fun rampVolume() {
+        rampJob?.cancel()
+        rampJob = scope.launch(Dispatchers.Main) {
+            val from = player.volume
+            val t = target()
+            for (i in 1..10) { player.volume = from + (t - from) * i / 10f; delay(30) }
+            player.volume = target()
+        }
+    }
+
+    fun setVolume(v: Float) { prefs.playerVolume = v; applyVolume() }
 
     fun setShuffle(on: Boolean) { player.shuffleModeEnabled = on; prefs.shuffle = on }
 

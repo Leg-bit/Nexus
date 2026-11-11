@@ -61,6 +61,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
     var bgAudio by remember { mutableStateOf(c.prefs.videoBgAudio) }
     var online by remember { mutableStateOf(c.prefs.onlineLyrics) }
     var mode by remember { mutableStateOf(c.prefs.playerMode) }
+    var vol by remember { mutableFloatStateOf(c.prefs.playerVolume) }
     var showEq by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf<String?>(null) }
     val addFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { u: Uri? ->
@@ -106,6 +107,11 @@ fun SettingsScreen(vm: LibraryViewModel) {
 
         item {
             Group("Pemutar") {
+                Text("Batas volume pemutar: ${(vol * 100).toInt()}%")
+                Slider(
+                    value = vol, onValueChange = { vol = it; c.player.setVolume(it) },
+                    valueRange = 0.05f..1f
+                )
                 Text("Mode pemutar default")
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("artwork" to "Cover", "vinyl" to "Vinyl", "lyrics" to "Lirik", "compact" to "Compact").forEach { (k, label) ->

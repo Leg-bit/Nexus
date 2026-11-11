@@ -23,7 +23,19 @@ fun EqualizerSheet(c: AppContainer, onDismiss: () -> Unit) {
     val eq by c.equalizer.state.collectAsState()
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
         Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp).verticalScroll(rememberScrollState())) {
-            Text("Equalizer", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Equalizer", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                if (eq.available) TextButton(onClick = { c.equalizer.reset() }) { Text("Reset") }
+            }
+            if (eq.available) {
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Aktifkan equalizer")
+                        Text("Mati = tanpa efek, volume normal", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = eq.enabled, onCheckedChange = { c.equalizer.setEnabled(it) })
+                }
+            }
             if (!eq.available) {
                 Text(
                     "Equalizer aktif setelah ada lagu yang diputar.",
@@ -31,22 +43,38 @@ fun EqualizerSheet(c: AppContainer, onDismiss: () -> Unit) {
                 )
                 Button(onClick = { c.equalizer.attach(c.player.player.audioSessionId) }) { Text("Coba aktifkan") }
             } else {
+                Text(
+                    "Volume otomatis diturunkan saat band/bass dinaikkan agar suara tidak pecah.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
                 Text("Preset", Modifier.padding(top = 12.dp, bottom = 4.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     itemsIndexed(eq.presets) { i, n -> AssistChip(onClick = { c.equalizer.usePreset(i) }, label = { Text(n) }) }
                 }
-                eq.levels.forEachIndexed { i, l ->
-                    val hz = eq.freqsHz.getOrElse(i) { 0 }
-                    Text(if (hz >= 1000) "${hz / 1000} kHz" else "$hz Hz", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
-                    Slider(
-                        value = l.toFloat(), onValueChange = { c.equalizer.setBand(i, it.toInt()) },
-                        valueRange = eq.minLevel.toFloat()..eq.maxLevel.toFloat()
-                    )
+                if (eq.maxLevel > eq.minLevel) {
+                    eq.levels.forEachIndexed { i, l ->
+                        val hz = eq.freqsHz.getOrElse(i) { 0 }
+                        val name = if (hz >= 1000) "${hz / 1000} kHz" else "$hz Hz"
+                        Text("$name   ${"%+.1f".format(l / 100f)} dB", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+                        Slider(
+                            value = l.toFloat(),
+                            onValueChange = { c.equalizer.setBand(i, it.toInt()) },
+                            onValueChangeFinished = { c.equalizer.commit() },
+                            valueRange = eq.minLevel.toFloat()..eq.maxLevel.toFloat()
+                        )
+                    }
                 }
                 Text("Bass boost")
-                Slider(value = eq.bass.toFloat(), onValueChange = { c.equalizer.setBass(it.toInt()) }, valueRange = 0f..1000f)
+                Slider(
+                    value = eq.bass.toFloat(), onValueChange = { c.equalizer.setBass(it.toInt()) },
+                    onValueChangeFinished = { c.equalizer.commit() }, valueRange = 0f..1000f
+                )
                 Text("Surround (virtualizer)")
-                Slider(value = eq.virt.toFloat(), onValueChange = { c.equalizer.setVirt(it.toInt()) }, valueRange = 0f..1000f)
+                Slider(
+                    value = eq.virt.toFloat(), onValueChange = { c.equalizer.setVirt(it.toInt()) },
+                    onValueChangeFinished = { c.equalizer.commit() }, valueRange = 0f..1000f
+                )
                 Text("Profil kustom", Modifier.padding(top = 8.dp, bottom = 4.dp))
                 var name by remember { mutableStateOf("") }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

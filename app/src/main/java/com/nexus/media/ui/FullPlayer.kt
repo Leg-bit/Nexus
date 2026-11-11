@@ -45,6 +45,22 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
+import androidx.compose.animation.core.Spring
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.sin
+import kotlin.math.sqrt
 import com.nexus.media.core.theme.ElectricBlue
 import com.nexus.media.data.local.entities.MediaEntity
 import com.nexus.media.di.AppContainer
@@ -90,6 +106,7 @@ fun FullPlayer(c: AppContainer, onClose: () -> Unit) {
                 .background(Brush.verticalGradient(listOf(accent.copy(alpha = 0.55f), Color(0xFF060914), Color.Black)))
                 .pointerInput(Unit) {}
         ) {
+            if (mode == "lyrics") SnowFall(accent, Modifier.fillMaxSize())
             Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onClose) { Icon(Icons.Rounded.KeyboardArrowDown, "Tutup", tint = Color.White, modifier = Modifier.size(32.dp)) }
@@ -116,8 +133,14 @@ fun FullPlayer(c: AppContainer, onClose: () -> Unit) {
                     BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
                         val s = minOf(maxWidth, maxHeight)
                         when (mode) {
-                            "vinyl" -> VinylDisc(item, st.isPlaying, accent, s)
-                            "lyrics" -> LyricsView(item, pos, c, accent, Modifier.fillMaxSize())
+                            "vinyl" -> VinylDisc(item, st.isPlaying, accent, if (dur > 0) pos.toFloat() / dur else 0f, s)
+                            "lyrics" -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                val side = minOf((maxWidth - 14.dp) / 2, maxHeight)
+                                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                    CoverArt(item, st.isPlaying, accent, side / 0.92f)
+                                }
+                                LyricsView(item, pos, c, accent, Modifier.weight(1f).fillMaxHeight())
+                            }
                             "compact" -> CompactView(st, c, accent, Modifier.fillMaxSize())
                             else -> CoverArt(item, st.isPlaying, accent, s)
                         }
@@ -224,51 +247,179 @@ private fun CoverArt(item: MediaEntity, playing: Boolean, accent: Color, size: D
 }
 
 @Composable
-private fun VinylDisc(item: MediaEntity, playing: Boolean, accent: Color, size: Dp) {
+private fun VinylDisc(item: MediaEntity, playing: Boolean, accent: Color, progress: Float, diameter: Dp) {
     var angle by remember { mutableFloatStateOf(0f) }
+    var speed by remember { mutableFloatStateOf(0f) }
+    // Spins up and slows down with inertia instead of starting/stopping instantly.
     LaunchedEffect(playing) {
-        if (playing) {
-            var last = withFrameNanos { it }
-            while (true) {
-                val now = withFrameNanos { it }
-                angle = (angle + (now - last) / 1_000_000_000f * 45f) % 360f
-                last = now
+        var last = withFrameNanos { it }
+        while (playing || speed > 0.5f) {
+            val now = withFrameNanos { it }
+            val dt = (now - last) / 1_000_000_000f
+            last = now
+            val target = if (playing) 60f else 0f
+            speed += (target - speed) * (dt * 2.5f).coerceAtMost(1f)
+            angle = (angle + speed * dt) % 360f
+        }
+        speed = 0f
+    }
+    val rest by animateFloatAsState(if (playing) 0f else 1f, tween(1000), label = "rest")
+    val prog by animateFloatAsState(progress.coerceIn(0f, 1f), tween(900), label = "prog")
+
+    Box(Modifier.size(diameter), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize(0.86f).glowCircle(accent, 34.dp, 1f))
+
+        // static drop shadow under the platter
+        Canvas(Modifier.fillMaxSize(0.95f)) {
+            val r = size.minDimension / 2
+            drawCircle(Color.Black.copy(alpha = 0.55f), r * 1.03f, center + Offset(0f, 8.dp.toPx()))
+        }
+        // platter: metal rim + strobe dots (rotates with the record)
+        Canvas(Modifier.fillMaxSize(0.95f).rotate(angle)) {
+            val r = size.minDimension / 2
+            drawCircle(
+                brush = Brush.sweepGradient(
+                    listOf(Color(0xFF3A3F4D), Color(0xFF9AA1B1), Color(0xFF3A3F4D), Color(0xFF9AA1B1), Color(0xFF3A3F4D)),
+                    center
+                ),
+                radius = r, center = center
+            )
+            drawCircle(Color(0xFF15171E), r * 0.965f, center)
+            for (k in 0 until 72) {
+                val a = k * 2f * Math.PI.toFloat() / 72f
+                val big = k % 6 == 0
+                drawCircle(
+                    Color.White.copy(alpha = if (big) 0.7f else 0.25f),
+                    if (big) 1.8.dp.toPx() else 1.dp.toPx(),
+                    Offset(center.x + cos(a) * r * 0.925f, center.y + sin(a) * r * 0.925f)
+                )
             }
         }
-    }
-    val arm by animateFloatAsState(if (playing) 0f else -26f, tween(700), label = "arm")
-    Box(Modifier.size(size), contentAlignment = Alignment.Center) {
-        Box(Modifier.fillMaxSize(0.88f).glowCircle(accent, 30.dp, 1f))
-        Box(Modifier.fillMaxSize(0.88f).rotate(angle), contentAlignment = Alignment.Center) {
+        // the record
+        Box(Modifier.fillMaxSize(0.86f).rotate(angle), contentAlignment = Alignment.Center) {
             Canvas(Modifier.fillMaxSize()) {
-                val r = this.size.minDimension / 2
-                drawCircle(Color(0xFF0B0B10), r, center)
-                var rr = r * 0.97f
-                while (rr > r * 0.36f) {
-                    drawCircle(Color.White.copy(alpha = 0.04f), rr, center, style = Stroke(1.dp.toPx()))
-                    rr -= 4.5.dp.toPx()
-                }
+                val r = size.minDimension / 2
+                drawCircle(Color(0xFF07070B), r, center)
+                // faint colour sheen from the artwork accent
                 drawCircle(
-                    brush = Brush.sweepGradient(
-                        listOf(Color.Transparent, Color.White.copy(alpha = 0.16f), Color.Transparent, Color.Transparent, Color.White.copy(alpha = 0.12f), Color.Transparent),
-                        center
-                    ),
+                    brush = Brush.radialGradient(listOf(Color.Transparent, accent.copy(alpha = 0.10f)), center = center, radius = r),
                     radius = r, center = center
                 )
-                drawCircle(accent, r * 0.34f, center)
+                var i = 0
+                var rr = r * 0.975f
+                while (rr > r * 0.37f) {
+                    val a = 0.025f + ((i * 37) % 7) * 0.007f
+                    drawCircle(Color.White.copy(alpha = a), rr, center, style = Stroke(0.7.dp.toPx()))
+                    rr -= 2.0.dp.toPx()
+                    i++
+                }
+                // gaps between tracks
+                listOf(0.50f, 0.63f, 0.76f, 0.88f).forEach {
+                    drawCircle(Color.Black.copy(alpha = 0.9f), r * it, center, style = Stroke(3.dp.toPx()))
+                    drawCircle(Color.White.copy(alpha = 0.06f), r * it + 2.dp.toPx(), center, style = Stroke(0.8.dp.toPx()))
+                }
+                drawCircle(Color.White.copy(alpha = 0.12f), r * 0.985f, center, style = Stroke(1.dp.toPx()))
+                // label
+                drawCircle(accent, r * 0.36f, center)
+                drawCircle(Color.Black.copy(alpha = 0.35f), r * 0.36f, center, style = Stroke(2.dp.toPx()))
+                drawCircle(Color.White.copy(alpha = 0.55f), r * 0.345f, center, style = Stroke(1.dp.toPx()))
             }
-            Box(Modifier.fillMaxSize(0.56f).clip(CircleShape)) { Thumb(item, Modifier.fillMaxSize(), CircleShape) }
-            Box(Modifier.size(11.dp).clip(CircleShape).background(Color(0xFF05060A)))
+            Box(Modifier.fillMaxSize(0.58f).clip(CircleShape)) { Thumb(item, Modifier.fillMaxSize(), CircleShape) }
+            Box(
+                Modifier.size(13.dp).clip(CircleShape)
+                    .background(Brush.radialGradient(listOf(Color(0xFFEDEFF5), Color(0xFF7D8494))))
+            )
         }
+        // fixed light reflections (they do not rotate, like real vinyl)
+        Canvas(Modifier.fillMaxSize(0.86f)) {
+            val r = size.minDimension / 2
+            drawCircle(
+                brush = Brush.sweepGradient(
+                    0f to Color.Transparent,
+                    0.07f to Color.Transparent,
+                    0.11f to Color.White.copy(alpha = 0.22f),
+                    0.15f to Color.Transparent,
+                    0.57f to Color.Transparent,
+                    0.61f to Color.White.copy(alpha = 0.15f),
+                    0.65f to Color.Transparent,
+                    1f to Color.Transparent,
+                    center = center
+                ),
+                radius = r, center = center
+            )
+            drawCircle(
+                brush = Brush.radialGradient(listOf(Color.White.copy(alpha = 0.07f), Color.Transparent), center = Offset(r * 0.55f, r * 0.45f), radius = r * 0.9f),
+                radius = r, center = center
+            )
+        }
+        // tonearm: the stylus follows the grooves from the outer edge towards the label as the song plays
         Canvas(Modifier.fillMaxSize()) {
-            val pivot = Offset(this.size.width * 0.93f, this.size.height * 0.05f)
-            rotate(degrees = arm, pivot = pivot) {
-                val end = Offset(this.size.width * 0.70f, this.size.height * 0.80f)
-                drawLine(Color(0xFFD5D9E3), pivot, end, strokeWidth = 5.dp.toPx(), cap = StrokeCap.Round)
-                drawCircle(Color(0xFF8E94A3), 12.dp.toPx(), pivot)
-                drawCircle(Color(0xFFD5D9E3), 6.dp.toPx(), pivot)
-                drawCircle(Color(0xFFB0B5C2), 7.dp.toPx(), end)
+            val w = size.width
+            val h = size.height
+            val c0 = Offset(w * 0.5f, h * 0.5f)
+            val rec = w * 0.43f
+            val pivot = Offset(w * 0.90f, h * 0.09f)
+            val armLen = w * 0.78f
+            fun tipAt(deg: Float): Offset {
+                val rad = Math.toRadians(deg.toDouble())
+                return Offset(pivot.x - (armLen * sin(rad)).toFloat(), pivot.y + (armLen * cos(rad)).toFloat())
             }
+            fun angleFor(dist: Float): Float {
+                var best = 0f
+                var bd = Float.MAX_VALUE
+                var a = 0f
+                while (a <= 70f) {
+                    val t = tipAt(a)
+                    val dd = abs(hypot(t.x - c0.x, t.y - c0.y) - dist)
+                    if (dd < bd) { bd = dd; best = a }
+                    a += 0.25f
+                }
+                return best
+            }
+            val outer = angleFor(rec * 0.93f)
+            val playing = angleFor(rec * (0.93f - 0.37f * prog))
+            val deg = playing - 26f * rest            // lifted and swung away from the record when paused
+            val tip = tipAt(deg)
+            val dx = tip.x - pivot.x
+            val dy = tip.y - pivot.y
+            val len = sqrt(dx * dx + dy * dy)
+            val ux = dx / len
+            val uy = dy / len
+            val lift = 1f + rest * 1.4f
+            val sh = Offset(4.dp.toPx() * lift, 7.dp.toPx() * lift)
+
+            // arm shadow on the record
+            drawLine(Color.Black.copy(alpha = 0.30f), pivot + sh, tip + sh, 6.dp.toPx(), StrokeCap.Round)
+            // counterweight
+            val back = Offset(pivot.x - ux * 40.dp.toPx(), pivot.y - uy * 40.dp.toPx())
+            drawLine(Color(0xFF20232D), Offset(pivot.x - ux * 8.dp.toPx(), pivot.y - uy * 8.dp.toPx()), back, 22.dp.toPx(), StrokeCap.Round)
+            drawLine(Color.White.copy(alpha = 0.16f), Offset(pivot.x - ux * 10.dp.toPx() - uy * 5.dp.toPx(), pivot.y - uy * 10.dp.toPx() + ux * 5.dp.toPx()),
+                Offset(back.x - uy * 5.dp.toPx(), back.y + ux * 5.dp.toPx()), 3.dp.toPx(), StrokeCap.Round)
+            // base
+            drawCircle(Color.Black.copy(alpha = 0.40f), 28.dp.toPx(), pivot + Offset(3.dp.toPx(), 5.dp.toPx()))
+            drawCircle(
+                brush = Brush.radialGradient(listOf(Color(0xFFE9ECF3), Color(0xFF6F7686)), center = pivot, radius = 27.dp.toPx()),
+                radius = 27.dp.toPx(), center = pivot
+            )
+            drawCircle(Color(0xFF14161D), 16.dp.toPx(), pivot)
+            drawCircle(
+                brush = Brush.radialGradient(listOf(Color(0xFFF4F6FA), Color(0xFF8A91A1)), center = pivot, radius = 11.dp.toPx()),
+                radius = 11.dp.toPx(), center = pivot
+            )
+            drawCircle(Color(0xFF2B2E3A), 3.dp.toPx(), pivot)
+            // arm tube
+            val tubeEnd = Offset(tip.x - ux * 16.dp.toPx(), tip.y - uy * 16.dp.toPx())
+            drawLine(
+                brush = Brush.linearGradient(listOf(Color(0xFFF4F6FA), Color(0xFF9AA1B1)), start = pivot, end = tubeEnd),
+                start = pivot, end = tubeEnd, strokeWidth = 6.dp.toPx(), cap = StrokeCap.Round
+            )
+            drawLine(Color.White.copy(alpha = 0.55f), Offset(pivot.x - uy * 1.5.dp.toPx(), pivot.y + ux * 1.5.dp.toPx()),
+                Offset(tubeEnd.x - uy * 1.5.dp.toPx(), tubeEnd.y + ux * 1.5.dp.toPx()), 1.2.dp.toPx(), StrokeCap.Round)
+            // headshell, cartridge and stylus
+            val shellEnd = Offset(tip.x + ux * 4.dp.toPx(), tip.y + uy * 4.dp.toPx())
+            drawLine(Color(0xFF2B2E3A), tubeEnd, shellEnd, 15.dp.toPx(), StrokeCap.Round)
+            drawLine(accent, Offset(tip.x - ux * 4.dp.toPx(), tip.y - uy * 4.dp.toPx()), Offset(tip.x + ux * 7.dp.toPx(), tip.y + uy * 7.dp.toPx()), 9.dp.toPx(), StrokeCap.Round)
+            drawCircle(Color.White, 2.2.dp.toPx(), Offset(tip.x + ux * 9.dp.toPx(), tip.y + uy * 9.dp.toPx()))
         }
     }
 }
@@ -305,6 +456,43 @@ private fun CompactView(st: PlayerUiState, c: AppContainer, accent: Color, modif
 }
 
 private data class LyricsUi(val loading: Boolean, val lines: List<LyricLine>)
+
+/** Falling snow tinted with the song's accent colour (lyrics background). */
+private class Flake(val x: Float, val speed: Float, val size: Float, val phase: Float, val sway: Float, val alpha: Float, val y0: Float)
+
+@Composable
+private fun SnowFall(accent: Color, modifier: Modifier = Modifier) {
+    val flakes = remember {
+        val r = java.util.Random(7)
+        List(70) {
+            Flake(
+                x = r.nextFloat(), speed = 0.04f + r.nextFloat() * 0.09f, size = 1.2f + r.nextFloat() * 3.8f,
+                phase = r.nextFloat() * 6.28f, sway = 0.01f + r.nextFloat() * 0.03f,
+                alpha = 0.25f + r.nextFloat() * 0.6f, y0 = r.nextFloat()
+            )
+        }
+    }
+    var t by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(Unit) {
+        var last = withFrameNanos { it }
+        while (true) {
+            val now = withFrameNanos { it }
+            t += (now - last) / 1_000_000_000f
+            last = now
+        }
+    }
+    val tint = remember(accent) { lerp(accent, Color.White, 0.55f) }
+    Canvas(modifier) {
+        for (f in flakes) {
+            val y = (f.y0 + t * f.speed) % 1f
+            val x = f.x + sin(t * 0.8f + f.phase) * f.sway
+            val c = Offset(x * size.width, y * size.height)
+            val r = f.size.dp.toPx()
+            drawCircle(tint.copy(alpha = f.alpha * 0.18f), r * 2.6f, c)   // soft halo
+            drawCircle(tint.copy(alpha = f.alpha), r, c)
+        }
+    }
+}
 
 @Composable
 private fun LyricsView(item: MediaEntity, posMs: Long, c: AppContainer, accent: Color, modifier: Modifier) {
@@ -351,18 +539,62 @@ private fun LyricsView(item: MediaEntity, posMs: Long, c: AppContainer, accent: 
     } else {
         val lines = ui.lines
         val synced = lines.first().timeMs >= 0
-        val cur = if (synced) lines.indexOfLast { it.timeMs <= posMs }.coerceAtLeast(0) else -1
+        val cur = if (synced) lines.indexOfLast { it.timeMs <= posMs + 250 }.coerceAtLeast(0) else -1
         val ls = rememberLazyListState()
-        LaunchedEffect(cur) { if (cur >= 0) ls.animateScrollToItem(maxOf(cur - 2, 0)) }
-        LazyColumn(modifier, state = ls, horizontalAlignment = Alignment.CenterHorizontally, contentPadding = PaddingValues(vertical = 80.dp)) {
+        var viewportH by remember { mutableIntStateOf(0) }
+        val density = LocalDensity.current
+        // The current line slides up to ~30% from the top; previous lines drift above and fade.
+        LaunchedEffect(cur, viewportH) {
+            if (cur >= 0 && viewportH > 0) ls.animateScrollToItem(cur, scrollOffset = -(viewportH * 0.30f).toInt())
+        }
+        LazyColumn(
+            modifier
+                .onSizeChanged { viewportH = it.height }
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            0f to Color.Transparent, 0.10f to Color.Black, 0.82f to Color.Black, 1f to Color.Transparent
+                        ),
+                        blendMode = BlendMode.DstIn
+                    )
+                },
+            state = ls,
+            contentPadding = PaddingValues(top = 24.dp, bottom = with(density) { (viewportH * 0.7f).toDp() })
+        ) {
             itemsIndexed(lines) { i, l ->
                 val active = i == cur
+                val dist = if (cur < 0) 0 else i - cur
+                val scale by animateFloatAsState(
+                    if (active || !synced) 1f else 0.80f,
+                    spring(dampingRatio = 0.55f, stiffness = 260f), label = "lineScale"
+                )
+                val alpha by animateFloatAsState(
+                    when {
+                        !synced -> 0.92f
+                        active -> 1f
+                        dist < 0 -> 0.30f
+                        else -> 0.50f
+                    },
+                    tween(450), label = "lineAlpha"
+                )
+                val glow by animateFloatAsState(if (active) 1f else 0f, tween(700), label = "lineGlow")
                 Text(
-                    l.text, textAlign = TextAlign.Center,
-                    fontSize = if (active) 23.sp else 17.sp,
-                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                    color = if (active || !synced) Color.White else Color.White.copy(alpha = 0.4f),
-                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp)
+                    l.text,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp)
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                            this.alpha = alpha
+                            transformOrigin = TransformOrigin(0f, 0.5f)
+                        },
+                    color = Color.White,
+                    fontSize = 21.sp,
+                    lineHeight = 27.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    textAlign = TextAlign.Start,
+                    style = TextStyle(shadow = Shadow(accent.copy(alpha = 0.95f * glow), Offset.Zero, 30f * glow))
                 )
             }
             item { TextButton(onClick = { picker.launch(arrayOf("*/*")) }) { Text("Ganti file lirik", color = accent) } }
