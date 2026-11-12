@@ -37,6 +37,7 @@ import com.nexus.media.di.AppContainer
 import com.nexus.media.player.video.VideoPlayerActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
@@ -98,22 +99,33 @@ fun EmptyState(text: String, content: @Composable ColumnScope.() -> Unit = {}) {
 
 // ---------- artwork ----------
 object ArtworkCache {
-    private val cache = LruCache<String, Bitmap>(48)
+    private val cache = LruCache<String, Bitmap>(64)
     private val missing = ConcurrentHashMap.newKeySet<String>()
+    private val gate = kotlinx.coroutines.sync.Semaphore(3)   // never decode more than 3 covers at once
 
     suspend fun load(ctx: Context, item: MediaEntity): Bitmap? = withContext(Dispatchers.IO) {
         cache.get(item.uri)?.let { return@withContext it }
         if (item.uri in missing) return@withContext null
-        val bmp = try {
-            val r = MediaMetadataRetriever()
-            try {
-                r.setDataSource(ctx, Uri.parse(item.uri))
-                r.embeddedPicture?.let { decode(it, 600) }
-            } finally {
-                r.release()
+        val bmp = gate.withPermit {
+            val uri = Uri.parse(item.uri)
+            var b: Bitmap? = null
+            if (android.os.Build.VERSION.SDK_INT >= 29 && item.uri.startsWith("content://media/")) {
+                b = runCatching { ctx.contentResolver.loadThumbnail(uri, android.util.Size(400, 400), null) }.getOrNull()
             }
-        } catch (e: Exception) {
-            null
+            if (b == null) {
+                b = try {
+                    val r = MediaMetadataRetriever()
+                    try {
+                        r.setDataSource(ctx, uri)
+                        r.embeddedPicture?.let { decode(it, 400) }
+                    } finally {
+                        r.release()
+                    }
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            b
         }
         if (bmp != null) cache.put(item.uri, bmp) else missing.add(item.uri)
         bmp

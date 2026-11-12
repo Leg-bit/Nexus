@@ -89,7 +89,7 @@ fun ArtPlaceholder(seed: String, modifier: Modifier = Modifier) {
 fun VideoFrameImage(item: MediaEntity, modifier: Modifier = Modifier, alpha: Float = 1f, cyan: Boolean = false) {
     val ctx = LocalContext.current
     AsyncImage(
-        model = ImageRequest.Builder(ctx).data(Uri.parse(item.uri)).videoFramePercent(0.1).crossfade(true).build(),
+        model = ImageRequest.Builder(ctx).data(Uri.parse(item.uri)).size(400).videoFramePercent(0.1).crossfade(true).build(),
         contentDescription = null, contentScale = ContentScale.Crop, alpha = alpha, modifier = modifier,
         colorFilter = if (cyan) ColorFilter.tint(Color(0xFF19D3E6), BlendMode.Color) else null
     )
@@ -102,7 +102,6 @@ fun VideoTile(item: MediaEntity, modifier: Modifier = Modifier, onLongClick: () 
     val shape = RoundedCornerShape(24.dp)
     Box(
         modifier.aspectRatio(1f)
-            .glow(ElectricBlue, 14.dp, 24.dp, 0.9f)
             .clip(shape)
             .background(Color(0xFF0B1226))
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)

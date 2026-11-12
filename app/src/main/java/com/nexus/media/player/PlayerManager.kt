@@ -9,6 +9,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -59,6 +60,7 @@ class PlayerManager(
     val sleepEndsAt: StateFlow<Long?> = _sleepEndsAt.asStateFlow()
     private var sleepJob: Job? = null
     private var headroom = 1f
+    private var rgFactor = 1f
     private var controllerFuture: Any? = null
 
     init {
@@ -79,6 +81,11 @@ class PlayerManager(
             }
 
             override fun onAudioSessionIdChanged(audioSessionId: Int) { eq.attach(audioSessionId) }
+
+            override fun onTracksChanged(tracks: Tracks) {
+                rgFactor = if (prefs.replayGain) readReplayGain(tracks) else 1f
+                applyVolume()
+            }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) { if (!isPlaying) saveQueueState() }
         })
@@ -168,12 +175,31 @@ class PlayerManager(
         if (player.isPlaying) player.pause() else { ensureService(); player.play() }
     }
 
-    fun next() { player.seekToNextMediaItem() }
+    fun next() {
+        if (player.hasNextMediaItem()) player.seekToNextMediaItem()
+        else if (player.mediaItemCount > 0) player.seekTo(0, 0L)
+    }
     fun previous() { if (player.currentPosition > 3000) player.seekTo(0) else player.seekToPreviousMediaItem() }
     fun seekTo(ms: Long) { player.seekTo(ms) }
 
     private var rampJob: Job? = null
-    private fun target() = (prefs.playerVolume * headroom).coerceIn(0f, 1f)
+    private fun target() = (prefs.playerVolume * headroom * rgFactor).coerceIn(0f, 1f)
+
+    /** ReplayGain: reads REPLAYGAIN_TRACK_GAIN from the file tags; only attenuates (never boosts above full volume). */
+    private fun readReplayGain(tracks: Tracks): Float {
+        val re = Regex("REPLAYGAIN_TRACK_GAIN\\D*?(-?\\d+(?:\\.\\d+)?)", RegexOption.IGNORE_CASE)
+        for (g in tracks.groups) {
+            if (g.type != C.TRACK_TYPE_AUDIO) continue
+            for (i in 0 until g.length) {
+                val md = g.getTrackFormat(i).metadata ?: continue
+                for (k in 0 until md.length()) {
+                    val db = re.find(md.get(k).toString())?.groupValues?.get(1)?.toFloatOrNull() ?: continue
+                    return Math.pow(10.0, minOf(db, 0f) / 20.0).toFloat().coerceIn(0.05f, 1f)
+                }
+            }
+        }
+        return 1f
+    }
 
     /** Instant volume (init, user volume slider, mute). */
     private fun applyVolume() { rampJob?.cancel(); player.volume = target() }

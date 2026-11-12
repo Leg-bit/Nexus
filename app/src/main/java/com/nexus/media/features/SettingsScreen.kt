@@ -60,6 +60,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
     var kw by remember(filter.excludeKeywords) { mutableStateOf(filter.excludeKeywords) }
     var bgAudio by remember { mutableStateOf(c.prefs.videoBgAudio) }
     var online by remember { mutableStateOf(c.prefs.onlineLyrics) }
+    var replayGain by remember { mutableStateOf(c.prefs.replayGain) }
     var mode by remember { mutableStateOf(c.prefs.playerMode) }
     var vol by remember { mutableFloatStateOf(c.prefs.playerVolume) }
     var showEq by remember { mutableStateOf(false) }
@@ -114,12 +115,15 @@ fun SettingsScreen(vm: LibraryViewModel) {
                 )
                 Text("Mode pemutar default")
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("artwork" to "Cover", "vinyl" to "Vinyl", "lyrics" to "Lirik", "compact" to "Compact").forEach { (k, label) ->
+                    listOf("artwork" to "Cover", "vinyl" to "Vinyl", "lyrics" to "Lirik", "compact" to "Compact", "visual" to "Visual").forEach { (k, label) ->
                         FilterChip(selected = mode == k, onClick = { mode = k; c.prefs.playerMode = k }, label = { Text(label) })
                     }
                 }
                 SwitchRow("Audio latar untuk video", "Suara video lanjut saat layar dikunci atau app ditutup", bgAudio) {
                     bgAudio = it; c.prefs.videoBgAudio = it
+                }
+                SwitchRow("ReplayGain", "Samakan kerasnya antar lagu memakai tag ReplayGain di file (hanya menurunkan, tidak menaikkan)", replayGain) {
+                    replayGain = it; c.prefs.replayGain = it
                 }
                 SwitchRow("Cari lirik online", "Memakai LRCLIB saat lagu tidak punya file lirik", online) {
                     online = it; c.prefs.onlineLyrics = it

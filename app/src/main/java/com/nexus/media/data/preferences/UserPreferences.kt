@@ -58,6 +58,10 @@ class UserPreferences(context: Context) {
         get() = sp.getBoolean("online_lyrics", true)
         set(v) = sp.edit().putBoolean("online_lyrics", v).apply()
 
+    var replayGain: Boolean
+        get() = sp.getBoolean("replay_gain", true)
+        set(v) = sp.edit().putBoolean("replay_gain", v).apply()
+
     var eqEnabled: Boolean
         get() = sp.getBoolean("eq_enabled", false)
         set(v) = sp.edit().putBoolean("eq_enabled", v).apply()

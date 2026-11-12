@@ -194,12 +194,12 @@ private fun MainScaffold(c: AppContainer) {
                     ) {
                         composable("main") {
                             HorizontalPager(pager, Modifier.fillMaxSize(), beyondViewportPageCount = 1) { page ->
-                                val off = ((pager.currentPage - page) + pager.currentPageOffsetFraction).absoluteValue.coerceIn(0f, 1f)
                                 Box(
                                     Modifier.fillMaxSize().graphicsLayer {
-                                        alpha = 1f - 0.5f * off
-                                        val s = 1f - 0.06f * off
-                                        scaleX = s; scaleY = s
+                                        // read in the draw phase: swiping no longer recomposes the whole page
+                                        val off = ((pager.currentPage - page) + pager.currentPageOffsetFraction).absoluteValue.coerceIn(0f, 1f)
+                                        val sc = 1f - 0.04f * off
+                                        scaleX = sc; scaleY = sc
                                     }
                                 ) {
                                     when (page) {

@@ -114,7 +114,7 @@ fun FullPlayer(c: AppContainer, onClose: () -> Unit) {
                     Spacer(Modifier.width(48.dp))
                 }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("artwork" to "Cover", "vinyl" to "Vinyl", "lyrics" to "Lirik", "compact" to "Compact").forEach { (k, label) ->
+                    listOf("artwork" to "Cover", "vinyl" to "Vinyl", "lyrics" to "Lirik", "compact" to "Compact", "visual" to "Visual").forEach { (k, label) ->
                         FilterChip(
                             selected = mode == k,
                             onClick = { mode = k; c.prefs.playerMode = k },
@@ -143,6 +143,7 @@ fun FullPlayer(c: AppContainer, onClose: () -> Unit) {
                                 LyricsView(item, pos, c, accent, Modifier.weight(1f).fillMaxHeight())
                             }
                             "compact" -> CompactView(st, c, accent, Modifier.fillMaxSize())
+                            "visual" -> VisualizerView(c, accent, Modifier.fillMaxSize())
                             else -> CoverArt(item, st.isPlaying, accent, s)
                         }
                     }
@@ -151,17 +152,7 @@ fun FullPlayer(c: AppContainer, onClose: () -> Unit) {
                         Text(item.artist, color = Color.White.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     Spacer(Modifier.height(6.dp))
-                    Slider(
-                        value = if (seeking) seekPos else pos.toFloat().coerceAtMost(maxOf(dur, 1L).toFloat()),
-                        onValueChange = { seeking = true; seekPos = it },
-                        onValueChangeFinished = { c.player.seekTo(seekPos.toLong()); pos = seekPos.toLong(); seeking = false },
-                        valueRange = 0f..maxOf(dur, 1L).toFloat(),
-                        colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent, inactiveTrackColor = Color.White.copy(alpha = 0.2f))
-                    )
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(fmtTime(if (seeking) seekPos.toLong() else pos), style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f))
-                        Text(fmtTime(dur), style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f))
-                    }
+                    SeekRow(pos, dur, accent, onSeek = { c.player.seekTo(it); pos = it })
                     Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { c.player.setShuffle(!st.shuffle) }) {
                             Icon(Icons.Rounded.Shuffle, "Acak", tint = if (st.shuffle) accent else Color.White.copy(alpha = 0.8f))
@@ -599,6 +590,53 @@ private fun LyricsView(item: MediaEntity, posMs: Long, c: AppContainer, accent: 
                 )
             }
             item { TextButton(onClick = { picker.launch(arrayOf("*/*")) }) { Text("Ganti file lirik", color = accent) } }
+        }
+    }
+}
+
+
+@Composable
+private fun VisualizerView(c: AppContainer, accent: Color, modifier: Modifier) {
+    val ctx = LocalContext.current
+    var granted by remember {
+        mutableStateOf(androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED)
+    }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
+    if (!granted) {
+        Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Text("Visualizer membaca spektrum lagu yang sedang diputar, jadi Android meminta izin audio.", color = Color.White, textAlign = TextAlign.Center, modifier = Modifier.padding(16.dp))
+            Button(onClick = { launcher.launch(android.Manifest.permission.RECORD_AUDIO) }, colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.White)) { Text("Izinkan") }
+        }
+    } else {
+        DisposableEffect(Unit) {
+            c.visualizer.start(c.player.player.audioSessionId)
+            onDispose { c.visualizer.stop() }
+        }
+        val n = com.nexus.media.player.audio.VisualizerManager.BARS
+        val sm = remember { FloatArray(n) }
+        var frame by remember { mutableIntStateOf(0) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                withFrameNanos { it }
+                val raw = c.visualizer.bars.value
+                for (i in 0 until n) sm[i] = maxOf(raw.getOrElse(i) { 0f }, sm[i] * 0.90f)
+                frame++
+            }
+        }
+        val top = remember(accent) { lerp(accent, Color.White, 0.6f) }
+        Canvas(modifier) {
+            val f = frame
+            val gap = 4.dp.toPx()
+            val bw = (size.width - gap * (n - 1)) / n
+            for (i in 0 until n) {
+                val h = (sm[i].coerceIn(0f, 1f) * size.height * 0.9f).coerceAtLeast(4.dp.toPx())
+                val x = i * (bw + gap)
+                drawRoundRect(
+                    brush = Brush.verticalGradient(listOf(top, accent), startY = size.height - h, endY = size.height),
+                    topLeft = Offset(x, size.height - h), size = androidx.compose.ui.geometry.Size(bw, h),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(bw / 2)
+                )
+            }
         }
     }
 }

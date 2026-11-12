@@ -20,5 +20,6 @@ class AppContainer(private val app: Application) {
     val scanner = MediaScanner(app)
     val repository = MediaRepository(app, db, prefs, scanner, appScope)
     val equalizer = EqualizerManager(prefs)
+    val visualizer = com.nexus.media.player.audio.VisualizerManager()
     val player: PlayerManager by lazy { PlayerManager(app, db, prefs, equalizer, appScope) }
 }
