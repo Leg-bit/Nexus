@@ -2,7 +2,17 @@ package com.nexus.media.ui
 
 import android.graphics.Bitmap
 import android.net.Uri
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -100,11 +110,18 @@ fun VideoFrameImage(item: MediaEntity, modifier: Modifier = Modifier, alpha: Flo
 @Composable
 fun VideoTile(item: MediaEntity, modifier: Modifier = Modifier, onLongClick: () -> Unit = {}, onClick: () -> Unit) {
     val shape = RoundedCornerShape(24.dp)
+    val src = remember { MutableInteractionSource() }
+    val pressed by src.collectIsPressedAsState()
+    val indication = LocalIndication.current
+    val appear = remember { Animatable(0.88f) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, spring(dampingRatio = 0.6f, stiffness = 300f)) }
+    val press by animateFloatAsState(if (pressed) 0.94f else 1f, spring(dampingRatio = 0.5f, stiffness = 500f), label = "tilePress")
     Box(
         modifier.aspectRatio(1f)
+            .graphicsLayer { val sc = appear.value * press; scaleX = sc; scaleY = sc }
             .clip(shape)
             .background(Color(0xFF0B1226))
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .combinedClickable(interactionSource = src, indication = indication, onClick = onClick, onLongClick = onLongClick)
             .border(2.dp, ElectricBlue, shape)
     ) {
         VideoFrameImage(item, Modifier.fillMaxSize())

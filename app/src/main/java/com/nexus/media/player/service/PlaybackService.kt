@@ -32,16 +32,8 @@ class PlaybackService : MediaSessionService() {
 
             override fun isCommandAvailable(command: Int): Boolean = getAvailableCommands().contains(command)
 
-            private fun goNext() {
-                if (base.hasNextMediaItem()) base.seekToNextMediaItem()
-                else if (base.mediaItemCount > 0) base.seekTo(0, 0L)
-                base.play()
-            }
-
-            private fun goPrevious() {
-                if (base.currentPosition > 3000 || !base.hasPreviousMediaItem()) base.seekTo(0)
-                else base.seekToPreviousMediaItem()
-            }
+            private fun goNext() = container.player.next()
+            private fun goPrevious() = container.player.previous()
 
             override fun seekToNext() = goNext()
             override fun seekToNextMediaItem() = goNext()

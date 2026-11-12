@@ -58,6 +58,19 @@ class UserPreferences(context: Context) {
         get() = sp.getBoolean("online_lyrics", true)
         set(v) = sp.edit().putBoolean("online_lyrics", v).apply()
 
+    var bitPerfect: Boolean
+        get() = sp.getBoolean("bit_perfect", false)
+        set(v) = sp.edit().putBoolean("bit_perfect", v).apply()
+
+    data class TranslateSetting(val on: Boolean = false, val target: String = "id")
+
+    val translate = MutableStateFlow(TranslateSetting(sp.getBoolean("tr_on", false), sp.getString("tr_target", "id")!!))
+
+    fun setTranslate(s: TranslateSetting) {
+        translate.value = s
+        sp.edit().putBoolean("tr_on", s.on).putString("tr_target", s.target).apply()
+    }
+
     var replayGain: Boolean
         get() = sp.getBoolean("replay_gain", true)
         set(v) = sp.edit().putBoolean("replay_gain", v).apply()

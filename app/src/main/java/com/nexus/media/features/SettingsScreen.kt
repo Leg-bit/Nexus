@@ -61,6 +61,8 @@ fun SettingsScreen(vm: LibraryViewModel) {
     var bgAudio by remember { mutableStateOf(c.prefs.videoBgAudio) }
     var online by remember { mutableStateOf(c.prefs.onlineLyrics) }
     var replayGain by remember { mutableStateOf(c.prefs.replayGain) }
+    var bitPerfect by remember { mutableStateOf(c.prefs.bitPerfect) }
+    val dac by c.dac.status.collectAsState()
     var mode by remember { mutableStateOf(c.prefs.playerMode) }
     var vol by remember { mutableFloatStateOf(c.prefs.playerVolume) }
     var showEq by remember { mutableStateOf(false) }
@@ -133,6 +135,24 @@ fun SettingsScreen(vm: LibraryViewModel) {
         }
 
         item {
+            Group("Audio USB DAC") {
+                SwitchRow("Mode bit-perfect", "Tanpa equalizer, bass, ReplayGain, dan volume digital (atur volume di DAC/sistem)", bitPerfect) {
+                    bitPerfect = it
+                    c.prefs.bitPerfect = it
+                    c.player.onBitPerfectChanged()
+                }
+                Text(
+                    dac.message, style = MaterialTheme.typography.bodySmall,
+                    color = if (dac.active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "Bit-perfect lewat sistem hanya didukung Android 14 ke atas dan DAC yang mengiklankannya. Output 24-bit (float) aktif setelah app dibuka ulang.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        item {
             Group("Folder kustom") {
                 if (custom.isEmpty()) Text("Belum ada.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 custom.toList().forEach { s ->
@@ -159,7 +179,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
         item {
             Group("Data") {
                 OutlinedButton(onClick = { vm.clearHistory(); msg = "Riwayat dihapus" }) { Text("Hapus riwayat") }
-                OutlinedButton(onClick = { LyricsRepository.clearCache(ctx); msg = "Cache lirik dihapus" }) { Text("Hapus cache lirik") }
+                OutlinedButton(onClick = { LyricsRepository.clearCache(ctx); com.nexus.media.player.audio.LyricsTranslator.clearCache(ctx); msg = "Cache lirik dihapus" }) { Text("Hapus cache lirik") }
                 msg?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
                 Text("NEXUS Media v0.3.0", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }

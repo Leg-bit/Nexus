@@ -27,6 +27,12 @@ fun EqualizerSheet(c: AppContainer, onDismiss: () -> Unit) {
                 Text("Equalizer", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 if (eq.available) TextButton(onClick = { c.equalizer.reset() }) { Text("Reset") }
             }
+            if (c.prefs.bitPerfect) {
+                Text(
+                    "Mode bit-perfect aktif: equalizer tidak dijalankan supaya sinyal tidak diubah. Matikan mode itu di Pengaturan untuk memakai equalizer.",
+                    color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
             if (eq.available) {
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {

@@ -55,6 +55,7 @@ class EqualizerManager(private val prefs: UserPreferences) {
 
     fun attach(session: Int) {
         detach()
+        if (prefs.bitPerfect) return   // bit-perfect: no effect may touch the signal
         if (session <= 0) return
         try {
             eq = Equalizer(0, session)
@@ -179,6 +180,7 @@ class EqualizerManager(private val prefs: UserPreferences) {
 
     /** Master switch. Off = no effect at all and normal volume. */
     fun setEnabled(on: Boolean) {
+        if (prefs.bitPerfect) return
         prefs.eqEnabled = on
         _state.value = _state.value.copy(enabled = on)
         sync()

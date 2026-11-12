@@ -6,7 +6,20 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.gestures.animateScrollBy
+import com.nexus.media.player.audio.decodeLyricsBytes
+import com.nexus.media.player.audio.isRtlText
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -16,6 +29,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -66,7 +80,10 @@ import com.nexus.media.data.local.entities.MediaEntity
 import com.nexus.media.di.AppContainer
 import com.nexus.media.player.PlayerUiState
 import com.nexus.media.player.audio.LyricLine
+import com.nexus.media.player.audio.LyricsTranslator
+import com.nexus.media.player.audio.TrResult
 import com.nexus.media.player.audio.LyricsRepository
+import com.nexus.media.player.audio.estimateTimings
 import com.nexus.media.player.audio.loadSidecarLyrics
 import com.nexus.media.player.audio.parseLyrics
 import kotlinx.coroutines.Dispatchers
@@ -86,6 +103,11 @@ fun FullPlayer(c: AppContainer, onClose: () -> Unit) {
     var dur by remember { mutableLongStateOf(0L) }
     var seeking by remember { mutableStateOf(false) }
     var seekPos by remember { mutableFloatStateOf(0f) }
+
+    // +1 when moving forward in the queue, -1 backwards: used for the slide direction on song change
+    var prevIndex by remember { mutableIntStateOf(st.currentIndex) }
+    val dir = remember(st.currentIndex) { if (st.currentIndex >= prevIndex) 1 else -1 }
+    SideEffect { prevIndex = st.currentIndex }
 
     val bmp by produceState<Bitmap?>(null, item?.uri) { value = item?.let { ArtworkCache.load(ctx, it) } }
     val target = remember(bmp) { bmp?.let { dominantColor(it) } ?: ElectricBlue }
@@ -130,47 +152,75 @@ fun FullPlayer(c: AppContainer, onClose: () -> Unit) {
                 if (item == null) {
                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("Belum ada lagu diputar", color = Color.White) }
                 } else {
-                    BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
-                        val s = minOf(maxWidth, maxHeight)
-                        // read the constraints here: they are not reachable from inside Row's lambda
-                        val halfSide = minOf((maxWidth - 14.dp) / 2, maxHeight)
-                        when (mode) {
-                            "vinyl" -> VinylDisc(item, st.isPlaying, accent, if (dur > 0) pos.toFloat() / dur else 0f, s)
-                            "lyrics" -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                                    CoverArt(item, st.isPlaying, accent, halfSide / 0.92f)
+                    val cur: MediaEntity = item
+                    AnimatedContent(
+                        targetState = cur,
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        transitionSpec = {
+                            (fadeIn(tween(320)) + slideInHorizontally(tween(380)) { dir * it / 3 }) togetherWith
+                                (fadeOut(tween(220)) + slideOutHorizontally(tween(380)) { -dir * it / 3 })
+                        },
+                        label = "track"
+                    ) { track ->
+                        BoxWithConstraints(Modifier.fillMaxSize().padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
+                            val s = minOf(maxWidth, maxHeight)
+                            // read the constraints here: they are not reachable from inside Row's lambda
+                            val halfSide = minOf((maxWidth - 14.dp) / 2, maxHeight - 64.dp).coerceAtLeast(80.dp)
+                            when (mode) {
+                                "vinyl" -> VinylDisc(track, st.isPlaying, accent, if (dur > 0) pos.toFloat() / dur else 0f, s)
+                                "lyrics" -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                        CoverArt(track, st.isPlaying, accent, halfSide / 0.92f)
+                                        Spacer(Modifier.height(14.dp))
+                                        TranslateControl(c, accent)
+                                    }
+                                    LyricsView(track, pos, c, accent, Modifier.weight(1f).fillMaxHeight())
                                 }
-                                LyricsView(item, pos, c, accent, Modifier.weight(1f).fillMaxHeight())
+                                "compact" -> CompactView(st, c, accent, Modifier.fillMaxSize())
+                                "visual" -> VisualizerView(c, accent, Modifier.fillMaxSize())
+                                else -> CoverArt(track, st.isPlaying, accent, s)
                             }
-                            "compact" -> CompactView(st, c, accent, Modifier.fillMaxSize())
-                            "visual" -> VisualizerView(c, accent, Modifier.fillMaxSize())
-                            else -> CoverArt(item, st.isPlaying, accent, s)
                         }
                     }
                     if (mode != "compact") {
-                        Text(item.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color.White)
-                        Text(item.artist, color = Color.White.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        AnimatedContent(
+                            targetState = cur,
+                            modifier = Modifier.fillMaxWidth(),
+                            transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(200)) },
+                            label = "title"
+                        ) { t ->
+                            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(t.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color.White)
+                                Text(t.artist, color = Color.White.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
                     }
                     Spacer(Modifier.height(6.dp))
                     SeekRow(pos, dur, accent, onSeek = { c.player.seekTo(it); pos = it })
                     Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { c.player.setShuffle(!st.shuffle) }) {
+                        BounceIconButton(onClick = { c.player.setShuffle(!st.shuffle) }) {
                             Icon(Icons.Rounded.Shuffle, "Acak", tint = if (st.shuffle) accent else Color.White.copy(alpha = 0.8f))
                         }
-                        IconButton(onClick = { c.player.previous() }, modifier = Modifier.size(56.dp)) {
+                        BounceIconButton(onClick = { c.player.previous() }, modifier = Modifier.size(56.dp)) {
                             Icon(Icons.Rounded.SkipPrevious, "Sebelumnya", tint = Color.White, modifier = Modifier.size(40.dp))
                         }
-                        FilledIconButton(
+                        BounceFilledIconButton(
                             onClick = { c.player.toggle() },
-                            modifier = Modifier.size(76.dp).glowCircle(accent, 20.dp, 0.9f),
-                            colors = IconButtonDefaults.filledIconButtonColors(containerColor = accent, contentColor = Color.White)
+                            containerColor = accent,
+                            modifier = Modifier.size(76.dp).glowCircle(accent, 20.dp, 0.9f)
                         ) {
-                            Icon(if (st.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Putar/Jeda", tint = Color.White, modifier = Modifier.size(42.dp))
+                            AnimatedContent(
+                                targetState = st.isPlaying,
+                                transitionSpec = { (scaleIn(tween(200)) + fadeIn(tween(200))) togetherWith (scaleOut(tween(150)) + fadeOut(tween(150))) },
+                                label = "playPause"
+                            ) { playing ->
+                                Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Putar/Jeda", tint = Color.White, modifier = Modifier.size(42.dp))
+                            }
                         }
-                        IconButton(onClick = { c.player.next() }, modifier = Modifier.size(56.dp)) {
+                        BounceIconButton(onClick = { c.player.next() }, modifier = Modifier.size(56.dp)) {
                             Icon(Icons.Rounded.SkipNext, "Berikutnya", tint = Color.White, modifier = Modifier.size(40.dp))
                         }
-                        IconButton(onClick = { c.player.cycleRepeat() }) {
+                        BounceIconButton(onClick = { c.player.cycleRepeat() }) {
                             Icon(
                                 if (st.repeat == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, "Ulangi",
                                 tint = if (st.repeat != Player.REPEAT_MODE_OFF) accent else Color.White.copy(alpha = 0.8f)
@@ -178,13 +228,13 @@ fun FullPlayer(c: AppContainer, onClose: () -> Unit) {
                         }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        IconButton(onClick = { sheet = "queue" }) { Icon(Icons.Rounded.QueueMusic, "Antrian", tint = Color.White) }
-                        IconButton(onClick = { sheet = "sleep" }) {
+                        BounceIconButton(onClick = { sheet = "queue" }) { Icon(Icons.Rounded.QueueMusic, "Antrian", tint = Color.White) }
+                        BounceIconButton(onClick = { sheet = "sleep" }) {
                             Icon(Icons.Rounded.Bedtime, "Sleep timer", tint = if (sleepEnds != null) accent else Color.White)
                         }
-                        IconButton(onClick = { sheet = "eq" }) { Icon(Icons.Rounded.Equalizer, "Equalizer", tint = Color.White) }
+                        BounceIconButton(onClick = { sheet = "eq" }) { Icon(Icons.Rounded.Equalizer, "Equalizer", tint = Color.White) }
                     }
-                }
+                                    }
             }
         }
     }
@@ -257,6 +307,13 @@ private fun VinylDisc(item: MediaEntity, playing: Boolean, accent: Color, progre
     }
     val rest by animateFloatAsState(if (playing) 0f else 1f, tween(1000), label = "rest")
     val prog by animateFloatAsState(progress.coerceIn(0f, 1f), tween(900), label = "prog")
+    // the needle lifts and drops again whenever a new song starts (and when the vinyl view opens)
+    val needleLift = remember { Animatable(0f) }
+    LaunchedEffect(item.id) {
+        needleLift.snapTo(0f)
+        needleLift.animateTo(1f, tween(350))
+        needleLift.animateTo(0f, tween(700))
+    }
 
     Box(Modifier.size(diameter), contentAlignment = Alignment.Center) {
         Box(Modifier.fillMaxSize(0.86f).glowCircle(accent, 34.dp, 1f))
@@ -370,14 +427,16 @@ private fun VinylDisc(item: MediaEntity, playing: Boolean, accent: Color, progre
             }
             val outer = angleFor(rec * 0.93f)
             val playing = angleFor(rec * (0.93f - 0.37f * prog))
-            val deg = playing - 26f * rest            // lifted and swung away from the record when paused
+            // lifted and swung away when paused; lifts on each new song; sways slightly with the (slightly off-centre) record
+            val sway = sin(Math.toRadians(angle.toDouble())).toFloat() * 0.55f * (1f - rest)
+            val deg = playing - 26f * rest + 16f * needleLift.value + sway
             val tip = tipAt(deg)
             val dx = tip.x - pivot.x
             val dy = tip.y - pivot.y
             val len = sqrt(dx * dx + dy * dy)
             val ux = dx / len
             val uy = dy / len
-            val lift = 1f + rest * 1.4f
+            val lift = 1f + rest * 1.4f + needleLift.value * 1.2f
             val sh = Offset(4.dp.toPx() * lift, 7.dp.toPx() * lift)
 
             // arm shadow on the record
@@ -447,7 +506,7 @@ private fun CompactView(st: PlayerUiState, c: AppContainer, accent: Color, modif
     }
 }
 
-private data class LyricsUi(val loading: Boolean, val lines: List<LyricLine>)
+private data class LyricsUi(val loading: Boolean, val lines: List<LyricLine>, val estimated: Boolean = false)
 
 /** Falling snow tinted with the song's accent colour (lyrics background). */
 private class Flake(val x: Float, val speed: Float, val size: Float, val phase: Float, val sway: Float, val alpha: Float, val y0: Float)
@@ -504,13 +563,20 @@ private fun LyricsView(item: MediaEntity, posMs: Long, c: AppContainer, accent: 
         val parsed = withContext(Dispatchers.IO) {
             // order: picked file -> <lagu>.lrc beside the audio -> online (LRCLIB)
             var raw: String? = if (saved != null) {
-                runCatching { ctx.contentResolver.openInputStream(Uri.parse(saved))!!.bufferedReader().use { it.readText() } }.getOrNull()
+                runCatching { decodeLyricsBytes(ctx.contentResolver.openInputStream(Uri.parse(saved))!!.use { it.readBytes() }) }.getOrNull()
             } else null
             if (raw == null) raw = loadSidecarLyrics(ctx, Uri.parse(item.uri))
-            if (raw == null && c.prefs.onlineLyrics) raw = LyricsRepository.online(ctx, item)
+            if (raw == null && c.prefs.onlineLyrics) raw = LyricsRepository.online(ctx, item, force = retry > 0)
             if (raw == null) emptyList() else parseLyrics(raw)
         }
-        value = LyricsUi(false, parsed)
+        val plainOnly = parsed.isNotEmpty() && parsed.first().timeMs < 0
+        value = LyricsUi(false, if (plainOnly) estimateTimings(parsed, item.duration) else parsed, plainOnly)
+    }
+    val trSet by c.prefs.translate.collectAsState()
+    val tr by produceState(TrResult(), ui.lines, trSet.on, trSet.target, item.id) {
+        if (!trSet.on || ui.lines.isEmpty()) { value = TrResult(); return@produceState }
+        value = TrResult(busy = true)
+        value = LyricsTranslator.translate(ctx, item.id, ui.lines, trSet.target)
     }
     if (ui.loading) {
         Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -529,7 +595,7 @@ private fun LyricsView(item: MediaEntity, posMs: Long, c: AppContainer, accent: 
             TextButton(onClick = { picker.launch(arrayOf("*/*")) }) { Text("Pilih file lirik (.lrc / .txt)", color = Color.White) }
         }
     } else {
-        val lines = ui.lines
+        val lines = tr.lines ?: ui.lines
         val synced = lines.first().timeMs >= 0
         val cur = if (synced) lines.indexOfLast { it.timeMs <= posMs + 250 }.coerceAtLeast(0) else -1
         val ls = rememberLazyListState()
@@ -537,7 +603,15 @@ private fun LyricsView(item: MediaEntity, posMs: Long, c: AppContainer, accent: 
         val density = LocalDensity.current
         // The current line slides up to ~30% from the top; previous lines drift above and fade.
         LaunchedEffect(cur, viewportH) {
-            if (cur >= 0 && viewportH > 0) ls.animateScrollToItem(cur, scrollOffset = -(viewportH * 0.30f).toInt())
+            if (cur < 0 || viewportH <= 0) return@LaunchedEffect
+            val targetY = viewportH * 0.30f
+            val info = ls.layoutInfo.visibleItemsInfo.firstOrNull { it.index == cur }
+            if (info != null) {
+                // smooth glide: the new line slides up while the previous ones drift away
+                ls.animateScrollBy(info.offset - targetY, tween(650, easing = FastOutSlowInEasing))
+            } else {
+                ls.animateScrollToItem(cur, scrollOffset = -targetY.toInt())
+            }
         }
         LazyColumn(
             modifier
@@ -572,24 +646,56 @@ private fun LyricsView(item: MediaEntity, posMs: Long, c: AppContainer, accent: 
                     tween(450), label = "lineAlpha"
                 )
                 val glow by animateFloatAsState(if (active) 1f else 0f, tween(700), label = "lineGlow")
-                Text(
-                    l.text,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp)
+                val parts = l.text.split("\n")
+                val rtl = isRtlText(parts[0])
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp)
                         .graphicsLayer {
                             scaleX = scale
                             scaleY = scale
                             this.alpha = alpha
-                            transformOrigin = TransformOrigin(0f, 0.5f)
-                        },
-                    color = Color.White,
-                    fontSize = 21.sp,
-                    lineHeight = 27.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    textAlign = TextAlign.Start,
-                    style = TextStyle(shadow = Shadow(accent.copy(alpha = 0.95f * glow), Offset.Zero, 30f * glow))
-                )
+                            transformOrigin = TransformOrigin(if (rtl) 1f else 0f, 0.5f)
+                        }
+                ) {
+                    parts.forEachIndexed { k, line ->
+                        Text(
+                            line,
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Color.White.copy(alpha = if (k == 0) 1f else 0.7f),
+                            fontSize = if (k == 0) 21.sp else 15.sp,
+                            lineHeight = if (k == 0) 27.sp else 20.sp,
+                            fontWeight = if (k == 0) FontWeight.ExtraBold else FontWeight.Medium,
+                            textAlign = TextAlign.Start,
+                            style = TextStyle(shadow = if (k == 0) Shadow(accent.copy(alpha = 0.95f * glow), Offset.Zero, 30f * glow) else null)
+                        )
+                    }
+                }
             }
-            item { TextButton(onClick = { picker.launch(arrayOf("*/*")) }) { Text("Ganti file lirik", color = accent) } }
+            item {
+                Column {
+                    if (tr.busy) {
+                        Text(
+                            "Menerjemahkan… (pertama kali mengunduh model bahasa)",
+                            style = MaterialTheme.typography.bodySmall, color = accent,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                    tr.message?.let {
+                        Text(
+                            it, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.6f),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                    if (ui.estimated) {
+                        Text(
+                            "Lirik tanpa timestamp: waktu sorotnya diperkirakan.",
+                            style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.5f),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                    TextButton(onClick = { picker.launch(arrayOf("*/*")) }) { Text("Ganti file lirik", color = accent) }
+                }
+            }
         }
     }
 }
@@ -602,7 +708,11 @@ private fun VisualizerView(c: AppContainer, accent: Color, modifier: Modifier) {
         mutableStateOf(androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED)
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
-    if (!granted) {
+    if (c.prefs.bitPerfect) {
+        Box(modifier, contentAlignment = Alignment.Center) {
+            Text("Visualizer dimatikan saat mode bit-perfect aktif, karena efek audio akan mengubah jalur suara.", color = Color.White, textAlign = TextAlign.Center, modifier = Modifier.padding(16.dp))
+        }
+    } else if (!granted) {
         Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Text("Visualizer membaca spektrum lagu yang sedang diputar, jadi Android meminta izin audio.", color = Color.White, textAlign = TextAlign.Center, modifier = Modifier.padding(16.dp))
             Button(onClick = { launcher.launch(android.Manifest.permission.RECORD_AUDIO) }, colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Color.White)) { Text("Izinkan") }
@@ -638,5 +748,64 @@ private fun VisualizerView(c: AppContainer, accent: Color, modifier: Modifier) {
                 )
             }
         }
+    }
+}
+
+
+private fun langName(code: String): String =
+    java.util.Locale(code).getDisplayLanguage(java.util.Locale.getDefault()).replaceFirstChar { it.uppercase() }
+
+private val translateLanguages: List<String> by lazy {
+    val all = com.google.mlkit.nl.translate.TranslateLanguage.getAllLanguages()
+    val top = listOf("id", "en", "ja", "ko", "zh", "ar", "es", "fr", "de", "pt", "ru", "hi", "th", "vi", "ms", "tr", "it")
+    top.filter { it in all } + all.filter { it !in top }.sortedBy { langName(it) }
+}
+
+/** Button under the cover in lyrics mode: choose the target language and switch translation on/off. */
+@Composable
+private fun TranslateControl(c: AppContainer, accent: Color) {
+    val set by c.prefs.translate.collectAsState()
+    var open by remember { mutableStateOf(false) }
+    FilledTonalButton(
+        onClick = { open = true },
+        colors = ButtonDefaults.filledTonalButtonColors(containerColor = accent.copy(alpha = if (set.on) 0.55f else 0.25f), contentColor = Color.White),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Icon(Icons.Rounded.Translate, null, Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(if (set.on) langName(set.target) else "Terjemahkan", maxLines = 1, fontSize = 12.sp)
+    }
+    if (open) {
+        AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text("Terjemahan lirik") },
+            text = {
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Tampilkan terjemahan", Modifier.weight(1f))
+                        Switch(checked = set.on, onCheckedChange = { c.prefs.setTranslate(set.copy(on = it)) })
+                    }
+                    Text("Ke bahasa:", Modifier.padding(top = 12.dp, bottom = 4.dp), style = MaterialTheme.typography.labelLarge)
+                    LazyColumn(Modifier.heightIn(max = 300.dp)) {
+                        items(translateLanguages) { code ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable { c.prefs.setTranslate(set.copy(on = true, target = code)) }.padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(selected = set.target == code, onClick = null)
+                                Spacer(Modifier.width(10.dp))
+                                Text(langName(code))
+                            }
+                        }
+                    }
+                    Text(
+                        "Diterjemahkan di perangkat. Model bahasa (sekitar 30 MB per bahasa) diunduh sekali, setelah itu bisa offline.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 10.dp)
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { open = false }) { Text("Selesai") } }
+        )
     }
 }

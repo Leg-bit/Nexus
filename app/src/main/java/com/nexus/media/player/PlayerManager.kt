@@ -39,9 +39,10 @@ class PlayerManager(
     private val db: NexusDatabase,
     private val prefs: UserPreferences,
     private val eq: EqualizerManager,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val dac: com.nexus.media.player.audio.UsbDacManager
 ) {
-    val player: ExoPlayer = ExoPlayer.Builder(ctx)
+    val player: ExoPlayer = ExoPlayer.Builder(ctx, androidx.media3.exoplayer.DefaultRenderersFactory(ctx).setEnableAudioFloatOutput(prefs.bitPerfect))
         .setAudioAttributes(
             AudioAttributes.Builder()
                 .setUsage(C.USAGE_MEDIA)
@@ -83,8 +84,9 @@ class PlayerManager(
             override fun onAudioSessionIdChanged(audioSessionId: Int) { eq.attach(audioSessionId) }
 
             override fun onTracksChanged(tracks: Tracks) {
-                rgFactor = if (prefs.replayGain) readReplayGain(tracks) else 1f
+                rgFactor = if (prefs.replayGain && !prefs.bitPerfect) readReplayGain(tracks) else 1f
                 applyVolume()
+                applyBitPerfect()
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) { if (!isPlaying) saveQueueState() }
@@ -175,15 +177,42 @@ class PlayerManager(
         if (player.isPlaying) player.pause() else { ensureService(); player.play() }
     }
 
+    private var lastPrevAt = 0L
+
+    /** Next song (wraps to the first one) and always starts playing, like other players. */
     fun next() {
-        if (player.hasNextMediaItem()) player.seekToNextMediaItem()
-        else if (player.mediaItemCount > 0) player.seekTo(0, 0L)
+        if (player.mediaItemCount == 0) return
+        ensureService()
+        if (player.hasNextMediaItem()) player.seekToNextMediaItem() else player.seekTo(0, 0L)
+        player.play()
     }
-    fun previous() { if (player.currentPosition > 3000) player.seekTo(0) else player.seekToPreviousMediaItem() }
+
+    /** Past 3 s: restart the song; press again within 1.5 s (or before 3 s): go to the previous song. */
+    fun previous() {
+        if (player.mediaItemCount == 0) return
+        ensureService()
+        val now = android.os.SystemClock.uptimeMillis()
+        val again = now - lastPrevAt < 1500
+        lastPrevAt = now
+        if ((player.currentPosition > 3000 && !again) || !player.hasPreviousMediaItem()) player.seekTo(0)
+        else player.seekToPreviousMediaItem()
+        player.play()
+    }
     fun seekTo(ms: Long) { player.seekTo(ms) }
 
     private var rampJob: Job? = null
-    private fun target() = (prefs.playerVolume * headroom * rgFactor).coerceIn(0f, 1f)
+    private fun target() = if (prefs.bitPerfect) 1f else (prefs.playerVolume * headroom * rgFactor).coerceIn(0f, 1f)
+
+    /** Match the USB DAC mixer to the current track (Android 14+); older versions only get the high-quality settings. */
+    fun applyBitPerfect() { dac.apply(player.audioFormat?.sampleRate ?: -1) }
+
+    /** Called when the bit-perfect switch changes: drop/restore effects, volume scaling and the DAC mixer mode. */
+    fun onBitPerfectChanged() {
+        eq.attach(player.audioSessionId)
+        rgFactor = if (prefs.replayGain && !prefs.bitPerfect) readReplayGain(player.currentTracks) else 1f
+        applyVolume()
+        applyBitPerfect()
+    }
 
     /** ReplayGain: reads REPLAYGAIN_TRACK_GAIN from the file tags; only attenuates (never boosts above full volume). */
     private fun readReplayGain(tracks: Tracks): Float {
