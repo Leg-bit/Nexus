@@ -12,7 +12,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
@@ -29,21 +32,37 @@ import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.NavHostController
 import com.nexus.media.data.local.entities.MediaEntity
+import com.nexus.media.data.repository.musicSortOptions
+import com.nexus.media.data.repository.sortMedia
+import com.nexus.media.data.repository.videoSortOptions
 import com.nexus.media.ui.*
 
 @Composable
-private fun QuickCard(icon: ImageVector, title: String, sub: String, modifier: Modifier, onClick: () -> Unit) {
-    Surface(
-        modifier = modifier.clip(RoundedCornerShape(20.dp)).clickable(onClick = onClick),
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant
+private fun QuickCard(icon: ImageVector, title: String, sub: String, colors: List<Color>, modifier: Modifier, onClick: () -> Unit) {
+    Box(
+        modifier.clip(RoundedCornerShape(22.dp))
+            .background(Brush.linearGradient(colors))
+            .clickable(onClick = onClick)
+            .padding(16.dp)
     ) {
-        Column(Modifier.padding(16.dp)) {
-            Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(10.dp))
-            Text(title, fontWeight = FontWeight.Bold)
-            Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column {
+            Box(Modifier.size(40.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.2f)), contentAlignment = Alignment.Center) {
+                Icon(icon, null, tint = Color.White)
+            }
+            Spacer(Modifier.height(14.dp))
+            Text(title, fontWeight = FontWeight.Bold, color = Color.White)
+            Text(sub, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.8f))
         }
+    }
+}
+
+private fun greeting(): String {
+    val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+    return when {
+        h in 5..10 -> "Selamat pagi"
+        h in 11..14 -> "Selamat siang"
+        h in 15..17 -> "Selamat sore"
+        else -> "Selamat malam"
     }
 }
 
@@ -65,16 +84,23 @@ fun HomeScreen(vm: LibraryViewModel, nav: NavHostController) {
                 IconButton(onClick = openDrawer) { Icon(Icons.Rounded.Menu, "Menu") }
             })
         }
+        item {
+            Text(
+                greeting() + ", mau dengar apa hari ini?",
+                Modifier.padding(start = 20.dp, end = 20.dp, bottom = 14.dp),
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         if (scanning) item { LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
         item {
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    QuickCard(Icons.Rounded.Videocam, "Video", "${videos.size} file", Modifier.weight(1f)) { goTab(1) }
-                    QuickCard(Icons.Rounded.MusicNote, "Musik", "${music.size} lagu", Modifier.weight(1f)) { goTab(2) }
+                    QuickCard(Icons.Rounded.Videocam, "Video", "${videos.size} file", listOf(Color(0xFF3A6BFF), Color(0xFF1B2A8F)), Modifier.weight(1f)) { goTab(1) }
+                    QuickCard(Icons.Rounded.MusicNote, "Musik", "${music.size} lagu", listOf(Color(0xFFB04CFF), Color(0xFF5A1FA8)), Modifier.weight(1f)) { goTab(2) }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    QuickCard(Icons.Rounded.PlaylistPlay, "Playlist", "Koleksi", Modifier.weight(1f)) { goTab(3) }
-                    QuickCard(Icons.Rounded.Folder, "Folder", "Penyimpanan lokal", Modifier.weight(1f)) { nav.navigate("folders") }
+                    QuickCard(Icons.Rounded.PlaylistPlay, "Playlist", "Koleksi", listOf(Color(0xFF1FC8B4), Color(0xFF0B6E7A)), Modifier.weight(1f)) { goTab(3) }
+                    QuickCard(Icons.Rounded.Folder, "Folder", "Penyimpanan lokal", listOf(Color(0xFFFF7A59), Color(0xFFB03A5B)), Modifier.weight(1f)) { nav.navigate("folders") }
                 }
             }
         }
@@ -88,7 +114,23 @@ fun HomeScreen(vm: LibraryViewModel, nav: NavHostController) {
         }
         if (recent.isNotEmpty()) {
             item { Spacer(Modifier.height(8.dp)); Section("Terakhir diputar") }
-            items(recent.take(10), key = { it.id }) { m -> MediaRow(m, onClick = { openMedia(ctx, c, m, recent) }) }
+            item {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    items(recent.take(12), key = { it.id }) { m ->
+                        Column(Modifier.width(120.dp).clickable { openMedia(ctx, c, m, recent) }) {
+                            Thumb(m, Modifier.size(120.dp), RoundedCornerShape(22.dp))
+                            Text(
+                                m.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp)
+                            )
+                            Text(
+                                if (m.mediaType == "audio") m.artist else "Video", maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
         }
         if (music.isEmpty() && videos.isEmpty() && !scanning) {
             item {
@@ -104,14 +146,26 @@ fun HomeScreen(vm: LibraryViewModel, nav: NavHostController) {
 fun VideoScreen(vm: LibraryViewModel, nav: NavHostController) {
     val ctx = LocalContext.current
     val c = LocalContainer.current
-    val videos by vm.videos.collectAsState()
+    val rawVideos by vm.videos.collectAsState()
+    val vSort by c.prefs.videoSort.collectAsState()
+    val videos = remember(rawVideos, vSort) { sortMedia(rawVideos, vSort) }
     LazyVerticalGrid(
         GridCells.Fixed(2), Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 22.dp, end = 22.dp, top = 8.dp, bottom = 28.dp),
         horizontalArrangement = Arrangement.spacedBy(22.dp), verticalArrangement = Arrangement.spacedBy(22.dp)
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
-            TopBar("Video", actions = { IconButton(onClick = { nav.navigate("search") }) { Icon(Icons.Rounded.Search, "Cari") } })
+            TopBar("Video", actions = {
+                SortMenu(videoSortOptions, vSort) { c.prefs.setVideoSort(it) }
+                IconButton(onClick = { nav.navigate("search") }) { Icon(Icons.Rounded.Search, "Cari") }
+            })
+        }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Text(
+                "${videos.size} video • urut: ${sortLabel(videoSortOptions, vSort)}",
+                Modifier.padding(start = 4.dp, bottom = 4.dp),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
         if (videos.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) { EmptyState("Belum ada video.") }
         items(videos, key = { it.id }) { v ->
@@ -124,12 +178,17 @@ fun VideoScreen(vm: LibraryViewModel, nav: NavHostController) {
 fun MusicScreen(vm: LibraryViewModel, nav: NavHostController) {
     val c = LocalContainer.current
     val songs by vm.music.collectAsState()
+    val mSort by c.prefs.musicSort.collectAsState()
+    val sortedSongs = remember(songs, mSort) { sortMedia(songs, mSort) }
     val st by c.player.state.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
     val albums = remember(songs) { songs.groupBy { it.album }.toList().sortedBy { it.first.lowercase() } }
     val artists = remember(songs) { songs.groupBy { it.artist }.toList().sortedBy { it.first.lowercase() } }
     Column(Modifier.fillMaxSize()) {
-        TopBar("Musik", actions = { IconButton(onClick = { nav.navigate("search") }) { Icon(Icons.Rounded.Search, "Cari") } })
+        TopBar("Musik", actions = {
+            if (tab == 0) SortMenu(musicSortOptions, mSort) { c.prefs.setMusicSort(it) }
+            IconButton(onClick = { nav.navigate("search") }) { Icon(Icons.Rounded.Search, "Cari") }
+        })
         TabRow(selectedTabIndex = tab, containerColor = androidx.compose.ui.graphics.Color.Transparent) {
             listOf("Lagu", "Album", "Artis").forEachIndexed { i, t -> Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t) }) }
         }
@@ -138,13 +197,20 @@ fun MusicScreen(vm: LibraryViewModel, nav: NavHostController) {
         } else when (tab) {
             0 -> LazyColumn(Modifier.fillMaxSize()) {
                 item {
+                  Column {
                     Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { c.player.setShuffle(false); c.player.play(songs, 0) }) { Text("Putar semua") }
-                        OutlinedButton(onClick = { c.player.playShuffled(songs) }) { Text("Acak") }
+                        Button(onClick = { c.player.setShuffle(false); c.player.play(sortedSongs, 0) }) { Text("Putar semua") }
+                        OutlinedButton(onClick = { c.player.playShuffled(sortedSongs) }) { Text("Acak") }
                     }
+                    Text(
+                        "${sortedSongs.size} lagu • urut: ${sortLabel(musicSortOptions, mSort)}",
+                        Modifier.padding(start = 16.dp, bottom = 6.dp),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                  }
                 }
-                itemsIndexed(songs, key = { _, m -> m.id }) { i, m ->
-                    MediaRow(m, playing = st.current?.id == m.id, onClick = { c.player.play(songs, i) })
+                itemsIndexed(sortedSongs, key = { _, m -> m.id }) { i, m ->
+                    MediaRow(m, playing = st.current?.id == m.id, onClick = { c.player.play(sortedSongs, i) })
                 }
             }
             1 -> GroupList(albums, "album", nav)

@@ -23,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
@@ -33,6 +34,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.nexus.media.data.local.entities.MediaEntity
+import com.nexus.media.data.repository.SortSetting
+import com.nexus.media.data.repository.defaultAsc
 import com.nexus.media.di.AppContainer
 import com.nexus.media.player.video.VideoPlayerActivity
 import kotlinx.coroutines.Dispatchers
@@ -70,7 +73,11 @@ fun TopBar(title: String, onBack: (() -> Unit)? = null, actions: @Composable Row
         if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Kembali") }
         else Spacer(Modifier.width(4.dp))
         Text(
-            title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+            title,
+            style = MaterialTheme.typography.headlineSmall.copy(
+                brush = Brush.horizontalGradient(listOf(Color.White, Color(0xFFA9C2FF), Color(0xFFC9A8FF)))
+            ),
+            fontWeight = FontWeight.ExtraBold,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
         )
         actions()
@@ -79,10 +86,11 @@ fun TopBar(title: String, onBack: (() -> Unit)? = null, actions: @Composable Row
 
 @Composable
 fun Section(title: String) {
-    Text(
-        title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-    )
+    Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(4.dp).height(18.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.primary))
+        Spacer(Modifier.width(8.dp))
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    }
 }
 
 @Composable
@@ -176,7 +184,15 @@ fun MediaRow(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Thumb(item, Modifier.size(52.dp))
+        Box {
+            Thumb(item, Modifier.size(52.dp))
+            if (playing) {
+                Box(
+                    Modifier.size(52.dp).clip(RoundedCornerShape(12.dp)).background(Color(0x99000000)),
+                    contentAlignment = Alignment.Center
+                ) { PlayingBars(MaterialTheme.colorScheme.primary) }
+            }
+        }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -277,3 +293,42 @@ fun VideoCard(item: MediaEntity, modifier: Modifier = Modifier, onClick: () -> U
         )
     }
 }
+
+
+/** Sort button with a dropdown: tap an option to sort by it, tap the selected one again to flip the direction. */
+@Composable
+fun SortMenu(options: List<Pair<String, String>>, current: SortSetting, onChange: (SortSetting) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) { Icon(Icons.Rounded.SortByAlpha, "Urutkan") }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            Text(
+                "Urutkan berdasarkan", Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            options.forEach { (key, label) ->
+                val selected = key == current.key
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            if (selected) label + (if (current.asc) "  ↑" else "  ↓") else label,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
+                    leadingIcon = { if (selected) Icon(Icons.Rounded.Check, null) else Spacer(Modifier.size(24.dp)) },
+                    onClick = {
+                        onChange(if (selected) current.copy(asc = !current.asc) else SortSetting(key, defaultAsc(key)))
+                        open = false
+                    }
+                )
+            }
+            Text(
+                "Tekan opsi yang sama untuk membalik urutan", Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+fun sortLabel(options: List<Pair<String, String>>, s: SortSetting): String =
+    (options.firstOrNull { it.first == s.key }?.second ?: s.key) + if (s.asc) " ↑" else " ↓"

@@ -9,6 +9,8 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.compose.ui.graphics.toArgb
+import com.google.common.util.concurrent.ListenableFuture
 import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaController
@@ -34,6 +36,7 @@ data class PlayerUiState(
 )
 
 /** Single audio ExoPlayer shared by the UI and PlaybackService (MediaSession). */
+@OptIn(androidx.media3.common.util.UnstableApi::class)
 class PlayerManager(
     private val ctx: Context,
     private val db: NexusDatabase,
@@ -62,7 +65,11 @@ class PlayerManager(
     private var sleepJob: Job? = null
     private var headroom = 1f
     private var rgFactor = 1f
-    private var controllerFuture: Any? = null
+    private var controllerFuture: ListenableFuture<MediaController>? = null
+
+    /** Tint for the media notification, taken from the current cover (dark enough for white text). */
+    @Volatile var notifColor: Int = 0xFF1E3A8A.toInt()
+    var onAccentChanged: (() -> Unit)? = null
 
     init {
         eq.onHeadroom = { f -> headroom = f; if (f <= 0.001f) applyVolume() else rampVolume() }
@@ -79,6 +86,7 @@ class PlayerManager(
                     }
                 }
                 saveQueueState()
+                updateAccent(mediaItem?.mediaId)
             }
 
             override fun onAudioSessionIdChanged(audioSessionId: Int) { eq.attach(audioSessionId) }
@@ -127,7 +135,11 @@ class PlayerManager(
         .build()
 
     private fun ensureService() {
-        if (controllerFuture != null) return
+        // if the service was stopped (notification dismissed / app swiped away) the old controller is dead: reconnect
+        val f = controllerFuture
+        val alive = f != null && (!f.isDone || runCatching { f.get().isConnected }.getOrDefault(false))
+        if (alive) return
+        f?.let { MediaController.releaseFuture(it) }
         ctx.startService(Intent(ctx, PlaybackService::class.java))
         val token = SessionToken(ctx, ComponentName(ctx, PlaybackService::class.java))
         controllerFuture = MediaController.Builder(ctx, token).buildAsync()
@@ -174,7 +186,32 @@ class PlayerManager(
     fun jumpTo(i: Int) { player.seekTo(i, 0L); player.play() }
 
     fun toggle() {
-        if (player.isPlaying) player.pause() else { ensureService(); player.play() }
+        ensureService()
+        if (player.isPlaying) player.pause() else resume()
+    }
+
+    /** Starts playback from any state: restarts a finished queue and re-prepares an idle player. */
+    fun resume() {
+        if (player.mediaItemCount == 0) return
+        when (player.playbackState) {
+            Player.STATE_ENDED -> player.seekTo(0, 0L)
+            Player.STATE_IDLE -> player.prepare()
+        }
+        player.play()
+    }
+
+    private fun updateAccent(id: String?) {
+        val item = queueItems.firstOrNull { it.id == id } ?: return
+        scope.launch {
+            val bmp = com.nexus.media.ui.ArtworkCache.load(ctx, item)
+            val c = if (bmp != null) com.nexus.media.ui.dominantColor(bmp) else com.nexus.media.core.theme.ElectricBlue
+            val hsv = FloatArray(3)
+            android.graphics.Color.colorToHSV(c.toArgb(), hsv)
+            hsv[1] = hsv[1].coerceAtLeast(0.55f)
+            hsv[2] = 0.40f
+            notifColor = android.graphics.Color.HSVToColor(hsv)
+            withContext(Dispatchers.Main) { onAccentChanged?.invoke() }
+        }
     }
 
     private var lastPrevAt = 0L

@@ -46,7 +46,10 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
@@ -306,14 +309,6 @@ private fun VinylDisc(item: MediaEntity, playing: Boolean, accent: Color, progre
         speed = 0f
     }
     val rest by animateFloatAsState(if (playing) 0f else 1f, tween(1000), label = "rest")
-    val prog by animateFloatAsState(progress.coerceIn(0f, 1f), tween(900), label = "prog")
-    // the needle lifts and drops again whenever a new song starts (and when the vinyl view opens)
-    val needleLift = remember { Animatable(0f) }
-    LaunchedEffect(item.id) {
-        needleLift.snapTo(0f)
-        needleLift.animateTo(1f, tween(350))
-        needleLift.animateTo(0f, tween(700))
-    }
 
     Box(Modifier.size(diameter), contentAlignment = Alignment.Center) {
         Box(Modifier.fillMaxSize(0.86f).glowCircle(accent, 34.dp, 1f))
@@ -401,51 +396,41 @@ private fun VinylDisc(item: MediaEntity, playing: Boolean, accent: Color, progre
                 radius = r, center = center
             )
         }
-        // tonearm: the stylus follows the grooves from the outer edge towards the label as the song plays
+        // tonearm: S-shaped like a real turntable. It stays still on the record while playing and swings away when paused.
         Canvas(Modifier.fillMaxSize()) {
             val w = size.width
             val h = size.height
-            val c0 = Offset(w * 0.5f, h * 0.5f)
-            val rec = w * 0.43f
             val pivot = Offset(w * 0.90f, h * 0.09f)
             val armLen = w * 0.78f
-            fun tipAt(deg: Float): Offset {
-                val rad = Math.toRadians(deg.toDouble())
-                return Offset(pivot.x - (armLen * sin(rad)).toFloat(), pivot.y + (armLen * cos(rad)).toFloat())
+            val deg = 21f - 19f * rest                 // 21 deg = on the record, 2 deg = parked outside
+            val rad = Math.toRadians(deg.toDouble())
+            val tip = Offset(pivot.x - (armLen * sin(rad)).toFloat(), pivot.y + (armLen * cos(rad)).toFloat())
+            val ux = (tip.x - pivot.x) / armLen
+            val uy = (tip.y - pivot.y) / armLen
+            val nx = -uy
+            val ny = ux
+            // S-curve: bows one way near the pivot and the other way near the headshell
+            val c1 = Offset(pivot.x + ux * armLen * 0.30f + nx * armLen * 0.075f, pivot.y + uy * armLen * 0.30f + ny * armLen * 0.075f)
+            val c2 = Offset(pivot.x + ux * armLen * 0.68f - nx * armLen * 0.075f, pivot.y + uy * armLen * 0.68f - ny * armLen * 0.075f)
+            val armPath = Path().apply {
+                moveTo(pivot.x, pivot.y)
+                cubicTo(c1.x, c1.y, c2.x, c2.y, tip.x, tip.y)
             }
-            fun angleFor(dist: Float): Float {
-                var best = 0f
-                var bd = Float.MAX_VALUE
-                var a = 0f
-                while (a <= 70f) {
-                    val t = tipAt(a)
-                    val dd = abs(hypot(t.x - c0.x, t.y - c0.y) - dist)
-                    if (dd < bd) { bd = dd; best = a }
-                    a += 0.25f
-                }
-                return best
-            }
-            val outer = angleFor(rec * 0.93f)
-            val playing = angleFor(rec * (0.93f - 0.37f * prog))
-            // lifted and swung away when paused; lifts on each new song; sways slightly with the (slightly off-centre) record
-            val sway = sin(Math.toRadians(angle.toDouble())).toFloat() * 0.55f * (1f - rest)
-            val deg = playing - 26f * rest + 16f * needleLift.value + sway
-            val tip = tipAt(deg)
-            val dx = tip.x - pivot.x
-            val dy = tip.y - pivot.y
-            val len = sqrt(dx * dx + dy * dy)
-            val ux = dx / len
-            val uy = dy / len
-            val lift = 1f + rest * 1.4f + needleLift.value * 1.2f
-            val sh = Offset(4.dp.toPx() * lift, 7.dp.toPx() * lift)
+            val lift = 1f + rest * 1.4f
+            val stroke = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
 
-            // arm shadow on the record
-            drawLine(Color.Black.copy(alpha = 0.30f), pivot + sh, tip + sh, 6.dp.toPx(), StrokeCap.Round)
-            // counterweight
+            // shadow of the arm on the record
+            translate(4.dp.toPx() * lift, 7.dp.toPx() * lift) {
+                drawPath(armPath, Color.Black.copy(alpha = 0.30f), style = stroke)
+            }
+            // counterweight behind the pivot
             val back = Offset(pivot.x - ux * 40.dp.toPx(), pivot.y - uy * 40.dp.toPx())
             drawLine(Color(0xFF20232D), Offset(pivot.x - ux * 8.dp.toPx(), pivot.y - uy * 8.dp.toPx()), back, 22.dp.toPx(), StrokeCap.Round)
-            drawLine(Color.White.copy(alpha = 0.16f), Offset(pivot.x - ux * 10.dp.toPx() - uy * 5.dp.toPx(), pivot.y - uy * 10.dp.toPx() + ux * 5.dp.toPx()),
-                Offset(back.x - uy * 5.dp.toPx(), back.y + ux * 5.dp.toPx()), 3.dp.toPx(), StrokeCap.Round)
+            drawLine(
+                Color.White.copy(alpha = 0.16f),
+                Offset(pivot.x - ux * 10.dp.toPx() - uy * 5.dp.toPx(), pivot.y - uy * 10.dp.toPx() + ux * 5.dp.toPx()),
+                Offset(back.x - uy * 5.dp.toPx(), back.y + ux * 5.dp.toPx()), 3.dp.toPx(), StrokeCap.Round
+            )
             // base
             drawCircle(Color.Black.copy(alpha = 0.40f), 28.dp.toPx(), pivot + Offset(3.dp.toPx(), 5.dp.toPx()))
             drawCircle(
@@ -458,19 +443,22 @@ private fun VinylDisc(item: MediaEntity, playing: Boolean, accent: Color, progre
                 radius = 11.dp.toPx(), center = pivot
             )
             drawCircle(Color(0xFF2B2E3A), 3.dp.toPx(), pivot)
-            // arm tube
-            val tubeEnd = Offset(tip.x - ux * 16.dp.toPx(), tip.y - uy * 16.dp.toPx())
-            drawLine(
-                brush = Brush.linearGradient(listOf(Color(0xFFF4F6FA), Color(0xFF9AA1B1)), start = pivot, end = tubeEnd),
-                start = pivot, end = tubeEnd, strokeWidth = 6.dp.toPx(), cap = StrokeCap.Round
-            )
-            drawLine(Color.White.copy(alpha = 0.55f), Offset(pivot.x - uy * 1.5.dp.toPx(), pivot.y + ux * 1.5.dp.toPx()),
-                Offset(tubeEnd.x - uy * 1.5.dp.toPx(), tubeEnd.y + ux * 1.5.dp.toPx()), 1.2.dp.toPx(), StrokeCap.Round)
-            // headshell, cartridge and stylus
-            val shellEnd = Offset(tip.x + ux * 4.dp.toPx(), tip.y + uy * 4.dp.toPx())
-            drawLine(Color(0xFF2B2E3A), tubeEnd, shellEnd, 15.dp.toPx(), StrokeCap.Round)
-            drawLine(accent, Offset(tip.x - ux * 4.dp.toPx(), tip.y - uy * 4.dp.toPx()), Offset(tip.x + ux * 7.dp.toPx(), tip.y + uy * 7.dp.toPx()), 9.dp.toPx(), StrokeCap.Round)
-            drawCircle(Color.White, 2.2.dp.toPx(), Offset(tip.x + ux * 9.dp.toPx(), tip.y + uy * 9.dp.toPx()))
+            // curved arm tube (metal gradient + highlight)
+            drawPath(armPath, brush = Brush.linearGradient(listOf(Color(0xFFF4F6FA), Color(0xFF8E95A6)), start = pivot, end = tip), style = stroke)
+            translate(-1.2.dp.toPx(), -1.2.dp.toPx()) {
+                drawPath(armPath, Color.White.copy(alpha = 0.45f), style = Stroke(width = 1.4.dp.toPx(), cap = StrokeCap.Round))
+            }
+            // headshell follows the end tangent of the curve
+            val tdx = tip.x - c2.x
+            val tdy = tip.y - c2.y
+            val tl = sqrt(tdx * tdx + tdy * tdy)
+            val tx = tdx / tl
+            val ty = tdy / tl
+            val shellStart = Offset(tip.x - tx * 10.dp.toPx(), tip.y - ty * 10.dp.toPx())
+            val shellEnd = Offset(tip.x + tx * 8.dp.toPx(), tip.y + ty * 8.dp.toPx())
+            drawLine(Color(0xFF2B2E3A), shellStart, shellEnd, 15.dp.toPx(), StrokeCap.Round)
+            drawLine(accent, tip, Offset(tip.x + tx * 11.dp.toPx(), tip.y + ty * 11.dp.toPx()), 9.dp.toPx(), StrokeCap.Round)
+            drawCircle(Color.White, 2.2.dp.toPx(), Offset(tip.x + tx * 15.dp.toPx(), tip.y + ty * 15.dp.toPx()))
         }
     }
 }

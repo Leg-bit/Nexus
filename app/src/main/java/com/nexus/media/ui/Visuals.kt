@@ -11,6 +11,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.background
@@ -122,7 +123,7 @@ fun VideoTile(item: MediaEntity, modifier: Modifier = Modifier, onLongClick: () 
             .clip(shape)
             .background(Color(0xFF0B1226))
             .combinedClickable(interactionSource = src, indication = indication, onClick = onClick, onLongClick = onLongClick)
-            .border(2.dp, ElectricBlue, shape)
+            .border(1.5.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = 0.55f), Color.White.copy(alpha = 0.06f), Color.White.copy(alpha = 0.30f))), shape)
     ) {
         VideoFrameImage(item, Modifier.fillMaxSize())
         Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0x66000000)))))
@@ -133,5 +134,20 @@ fun VideoTile(item: MediaEntity, modifier: Modifier = Modifier, onLongClick: () 
                 .padding(horizontal = 7.dp, vertical = 3.dp),
             color = Color.White, style = MaterialTheme.typography.labelSmall
         )
+    }
+}
+
+
+/** Three bouncing bars: marks the song that is playing. */
+@Composable
+fun PlayingBars(color: Color, modifier: Modifier = Modifier) {
+    val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "bars")
+    val a by t.animateFloat(0.25f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(420, easing = androidx.compose.animation.core.LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "a")
+    val b by t.animateFloat(0.25f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(560, easing = androidx.compose.animation.core.LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "b")
+    val c by t.animateFloat(0.25f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(350, easing = androidx.compose.animation.core.LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "c")
+    Row(modifier.height(16.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.Bottom) {
+        listOf(a, b, c).forEach { f ->
+            Box(Modifier.width(4.dp).fillMaxHeight(f).clip(RoundedCornerShape(2.dp)).background(color))
+        }
     }
 }

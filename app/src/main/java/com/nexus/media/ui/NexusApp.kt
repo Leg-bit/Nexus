@@ -5,6 +5,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -66,7 +75,7 @@ fun NexusApp(c: AppContainer) {
             c.player.restore()
         }
     }
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF0D1740), Color(0xFF060A1C), Color.Black)))) {
         if (!granted) {
             Column(
                 Modifier.fillMaxSize().padding(32.dp),
@@ -88,31 +97,91 @@ fun NexusApp(c: AppContainer) {
 
 @Composable
 private fun IntroOverlay(onDone: () -> Unit) {
-    val sc = remember { Animatable(0.55f) }
-    val a = remember { Animatable(0f) }
-    val fd = remember { Animatable(1f) }
+    val appear = remember { Animatable(0f) }
+    val spin = remember { Animatable(0f) }
+    val arm = remember { Animatable(0f) }
+    val text = remember { Animatable(0f) }
+    val exit = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        launch { a.animateTo(1f, tween(450)) }
-        launch { sc.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = 180f)) }
-        delay(1150)
-        fd.animateTo(0f, tween(450))
+        launch { spin.animateTo(900f, tween(2300, easing = LinearOutSlowInEasing)) }
+        launch { appear.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = 110f)) }
+        delay(500)
+        launch { arm.animateTo(1f, tween(650, easing = FastOutSlowInEasing)) }
+        delay(350)
+        launch { text.animateTo(1f, tween(800)) }
+        delay(1050)
+        exit.animateTo(1f, tween(520, easing = FastOutSlowInEasing))
         onDone()
     }
+    val bg = Brush.verticalGradient(listOf(Color(0xFF241466), Color(0xFF0A1330), Color.Black))
     Box(
-        Modifier.fillMaxSize().graphicsLayer { alpha = fd.value }.background(Color.Black).pointerInput(Unit) {},
+        Modifier.fillMaxSize().graphicsLayer { alpha = 1f - exit.value }.background(bg).pointerInput(Unit) {},
         contentAlignment = Alignment.Center
     ) {
         Column(
-            Modifier.graphicsLayer { scaleX = sc.value; scaleY = sc.value; alpha = a.value },
+            Modifier.graphicsLayer {
+                val s = (0.4f + 0.6f * appear.value) * (1f + exit.value * 6f)
+                scaleX = s; scaleY = s
+                alpha = appear.value.coerceIn(0f, 1f)
+            },
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Box(
-                Modifier.size(104.dp).glowCircle(ElectricBlue, 34.dp, 1f).clip(CircleShape).background(ElectricBlue),
-                contentAlignment = Alignment.Center
-            ) { Icon(Icons.Rounded.PlayArrow, null, tint = Color.White, modifier = Modifier.size(64.dp)) }
+            Box(Modifier.size(190.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize(0.8f).glowCircle(Color(0xFF7B5CFF), 40.dp, 1f))
+                Canvas(Modifier.fillMaxSize(0.82f).rotate(spin.value)) {
+                    val r = size.minDimension / 2
+                    drawCircle(Color(0xFF0C0D14), r, center)
+                    var rr = r * 0.95f
+                    while (rr > r * 0.45f) {
+                        drawCircle(Color.White.copy(alpha = 0.06f), rr, center, style = Stroke(0.8.dp.toPx()))
+                        rr -= 3.dp.toPx()
+                    }
+                    drawCircle(
+                        brush = Brush.sweepGradient(listOf(Color(0xFF2EE6FF), Color(0xFF7B5CFF), Color(0xFFFF4FA3), Color(0xFF2EE6FF)), center),
+                        radius = r * 0.36f, center = center
+                    )
+                    val tri = Path().apply {
+                        moveTo(center.x - r * 0.10f, center.y - r * 0.14f)
+                        lineTo(center.x - r * 0.10f, center.y + r * 0.14f)
+                        lineTo(center.x + r * 0.15f, center.y)
+                        close()
+                    }
+                    drawPath(tri, Color.White)
+                    drawCircle(
+                        brush = Brush.sweepGradient(
+                            0f to Color.Transparent, 0.10f to Color.Transparent, 0.14f to Color.White.copy(alpha = 0.18f),
+                            0.18f to Color.Transparent, 1f to Color.Transparent, center = center
+                        ),
+                        radius = r, center = center
+                    )
+                }
+                Canvas(Modifier.fillMaxSize()) {
+                    val w = size.width
+                    val h = size.height
+                    val pivot = Offset(w * 0.92f, h * 0.08f)
+                    val rest = Offset(w * 0.94f, h * 0.80f)
+                    val on = Offset(w * 0.66f, h * 0.74f)
+                    val tip = Offset(rest.x + (on.x - rest.x) * arm.value, rest.y + (on.y - rest.y) * arm.value)
+                    drawLine(Color(0xFFD5D9E3), pivot, tip, 5.dp.toPx(), StrokeCap.Round)
+                    drawCircle(Color(0xFF8E94A3), 11.dp.toPx(), pivot)
+                    drawCircle(Color(0xFFB0B5C2), 6.dp.toPx(), tip)
+                }
+            }
             Spacer(Modifier.height(26.dp))
-            Text("NEXUS", fontSize = 34.sp, fontWeight = FontWeight.Black, letterSpacing = 10.sp, color = Color.White)
-            Text("MEDIA", fontSize = 15.sp, letterSpacing = 8.sp, color = ElectricBlue)
+            Row {
+                "NEXUS".forEachIndexed { i, ch ->
+                    val a = (text.value * 7f - i).coerceIn(0f, 1f)
+                    Text(
+                        ch.toString(), fontSize = 34.sp, fontWeight = FontWeight.Black, color = Color.White,
+                        modifier = Modifier.graphicsLayer { alpha = a; translationY = (1f - a) * 28f }
+                            .padding(horizontal = 3.dp)
+                    )
+                }
+            }
+            Text(
+                "M E D I A", fontSize = 14.sp, color = Color(0xFFB9A8FF),
+                modifier = Modifier.graphicsLayer { alpha = text.value }
+            )
         }
     }
 }
@@ -177,7 +246,7 @@ private fun MainScaffold(c: AppContainer) {
         ) {
             Box(Modifier.fillMaxSize()) {
                 Scaffold(
-                    containerColor = MaterialTheme.colorScheme.background,
+                    containerColor = Color.Transparent,
                     bottomBar = {
                         Column {
                             MiniPlayer(c) { full = true }
@@ -248,7 +317,7 @@ private fun BottomBar(selected: Int, onSelect: (Int) -> Unit) {
         NavTab("library", "Pustaka", Icons.Rounded.VideoLibrary),
         NavTab("settings", "Setelan", Icons.Rounded.Settings)
     )
-    NavigationBar {
+    NavigationBar(containerColor = Color(0xE60A1020)) {
         tabs.forEachIndexed { i, t ->
             NavigationBarItem(
                 selected = selected == i,

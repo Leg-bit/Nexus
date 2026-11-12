@@ -2,6 +2,7 @@ package com.nexus.media.data.preferences
 
 import android.content.Context
 import com.nexus.media.data.repository.LibraryFilter
+import com.nexus.media.data.repository.SortSetting
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -70,6 +71,21 @@ class UserPreferences(context: Context) {
         translate.value = s
         sp.edit().putBoolean("tr_on", s.on).putString("tr_target", s.target).apply()
     }
+
+    private fun loadSort(k: String, def: SortSetting): SortSetting {
+        val p = (sp.getString(k, null) ?: return def).split(":")
+        return SortSetting(p[0], p.getOrNull(1) != "desc")
+    }
+
+    private fun saveSort(k: String, s: SortSetting) {
+        sp.edit().putString(k, s.key + ":" + if (s.asc) "asc" else "desc").apply()
+    }
+
+    val videoSort = MutableStateFlow(loadSort("sort_video", SortSetting("date", false)))
+    val musicSort = MutableStateFlow(loadSort("sort_music", SortSetting("name", true)))
+
+    fun setVideoSort(s: SortSetting) { videoSort.value = s; saveSort("sort_video", s) }
+    fun setMusicSort(s: SortSetting) { musicSort.value = s; saveSort("sort_music", s) }
 
     var replayGain: Boolean
         get() = sp.getBoolean("replay_gain", true)
